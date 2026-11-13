@@ -5,7 +5,7 @@ from flask import Flask
 
 from app.config import API_PREFIX, CONFIG_BY_NAME
 from app.errors import register_error_handlers
-from app.extensions import db
+from app.extensions import db, migrate
 from app.health.routes import health_bp
 
 
@@ -24,6 +24,7 @@ def create_app(config_name=None):
         raise RuntimeError("DATABASE_URL must be set in the environment for production.")
 
     db.init_app(app)
+    migrate.init_app(app, db)
 
     register_error_handlers(app)
     register_blueprints(app)

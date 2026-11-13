@@ -3,8 +3,9 @@
 Flask API for FlowDesk. Domain modules (auth, organizations, employees,
 tasks, etc.) are added incrementally per the backlog in
 [`docs/FlowDesk_Specification.md`](../docs/FlowDesk_Specification.md);
-only the application skeleton and database connection exist so far
-(FD-002, FD-004). No models yet (FD-005+).
+only the application skeleton, database connection, and migration
+pipeline exist so far (FD-002, FD-004, FD-005). No domain models yet
+(FD-008+).
 
 ## Structure
 
@@ -15,9 +16,10 @@ backend/
     __init__.py        Application factory, blueprint registration
     config.py           Per-environment config (FLASK_ENV: development/testing/production);
                           loads .env and reads env vars fresh per create_app() call
-    extensions.py         SQLAlchemy instance (db), initialized in create_app()
+    extensions.py         SQLAlchemy + Flask-Migrate instances, naming convention
     errors.py            APIError + central error handlers (hybrid envelope)
     health/              GET /api/v1/health (liveness + DB connectivity status)
+  migrations/            Alembic migration environment (flask db <cmd>)
   tests/                 Pytest suite
 ```
 
@@ -42,6 +44,24 @@ Then set `DATABASE_URL` / `TEST_DATABASE_URL` in `.env` (scheme
 `postgresql+psycopg://`, matching the `psycopg` v3 driver in
 `requirements.txt`) accordingly. FD-006 will replace manual local setup
 with Docker Compose.
+
+## Migrations
+
+Alembic via Flask-Migrate, rooted at `migrations/`. Constraints and
+indexes get deterministic names from the naming convention in
+`app/extensions.py` (`ix_`/`uq_`/`ck_`/`fk_`/`pk_` prefixes) so
+autogenerate never produces an unnamed-constraint diff.
+
+```bash
+FLASK_APP=wsgi.py ./.venv/Scripts/python.exe -m flask db upgrade        # apply migrations
+FLASK_APP=wsgi.py ./.venv/Scripts/python.exe -m flask db migrate -m "..."  # generate one from model changes
+FLASK_APP=wsgi.py ./.venv/Scripts/python.exe -m flask db downgrade base    # roll back to empty
+```
+
+The current baseline migration is intentionally empty — no domain models
+exist yet. Each future model-adding task should produce its own migration
+via `flask db migrate`, reviewed before committing (autogenerate doesn't
+catch everything, e.g. column renames).
 
 ## Response envelope
 

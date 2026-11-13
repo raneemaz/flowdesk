@@ -44,8 +44,8 @@ flowdesk/
 ```
 
 `backend/` has a working Flask application skeleton with a live PostgreSQL
-connection (FD-002, FD-004); `frontend/` has a working Vite + React +
-TypeScript skeleton (FD-003).
+connection and migration pipeline (FD-002, FD-004, FD-005); `frontend/`
+has a working Vite + React + TypeScript skeleton (FD-003).
 
 ## Status
 
@@ -53,9 +53,10 @@ This project is being built incrementally against a 65-task backlog
 (FD-001 through FD-065), strictly respecting the dependency map and
 priorities defined in the specification. FD-001 (repository structure),
 FD-002 (Flask app factory, config, central error handling, health check),
-FD-003 (React/Vite/TS/Router/TanStack Query/Tailwind/shadcn scaffold), and
-FD-004 (PostgreSQL + SQLAlchemy connection, sessions, pooling) are Done;
-no models, migrations, or feature pages exist yet.
+FD-003 (React/Vite/TS/Router/TanStack Query/Tailwind/shadcn scaffold),
+FD-004 (PostgreSQL + SQLAlchemy connection, sessions, pooling), and
+FD-005 (Alembic/Flask-Migrate, naming convention, baseline migration) are
+Done; no domain models or feature pages exist yet.
 
 ## Development workflow
 
