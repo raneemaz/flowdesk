@@ -15,6 +15,14 @@ def test_production_requires_secret_key(monkeypatch):
         create_app("production")
 
 
+def test_production_requires_database_url(monkeypatch):
+    monkeypatch.setenv("FLASK_SECRET_KEY", "a-real-production-secret")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    with pytest.raises(RuntimeError):
+        create_app("production")
+
+
 def test_development_config_has_debug_enabled():
     app = create_app("development")
 
