@@ -4,7 +4,7 @@ from pydantic import ValidationError
 from app.auth.decorators import csrf_protect, login_required
 from app.errors import APIError, validation_error_details
 from app.organizations.schemas import CreateOrganizationRequest
-from app.organizations.service import create_organization
+from app.organizations.service import create_organization, list_user_memberships
 
 organizations_bp = Blueprint("organizations", __name__)
 
@@ -40,3 +40,16 @@ def post_organizations():
         "data": organization.to_public_dict(),
     }
     return jsonify(body), 201
+
+
+@organizations_bp.route("/organizations", methods=["GET"])
+@login_required
+def get_organizations():
+    memberships = list_user_memberships(g.current_user)
+
+    body = {
+        "success": True,
+        "message": "Organizations retrieved",
+        "data": [m.to_public_dict() for m in memberships],
+    }
+    return jsonify(body), 200

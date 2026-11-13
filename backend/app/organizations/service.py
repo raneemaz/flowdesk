@@ -2,6 +2,7 @@ import re
 import secrets
 
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload
 
 from app.extensions import db
 from app.models import Membership, MembershipRole, Organization, User
@@ -65,3 +66,16 @@ def create_organization(creator: User, name: str, **optional_fields) -> Organiza
         return organization
 
     raise RuntimeError(f"Could not generate a unique organization slug after {_MAX_SLUG_ATTEMPTS} attempts: {last_error}")
+
+
+def list_user_memberships(user: User) -> list[Membership]:
+    """Always scoped to `user` - the caller's own memberships, never
+    another user's. There is no cross-tenant risk here by construction:
+    this never takes an organization_id or another user_id as input."""
+    return (
+        db.session.query(Membership)
+        .filter_by(user_id=user.id)
+        .options(joinedload(Membership.organization))
+        .order_by(Membership.joined_at.asc())
+        .all()
+    )

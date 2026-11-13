@@ -66,8 +66,9 @@ FD-007 (API conventions documented in `docs/API.md` + a live OpenAPI
 contract), FD-008 (User model — the first domain model), FD-009
 (registration), FD-010 (login/logout, Redis-backed sessions, CSRF),
 FD-011 (`GET /auth/me`), FD-012 (Organization + Membership models —
-first organization-scoped data), and FD-013 (organization creation,
-creator becomes Owner) are Done; no other feature pages exist yet.
+first organization-scoped data), FD-013 (organization creation, creator
+becomes Owner), and FD-014 (`GET /organizations` — list the caller's own
+memberships) are Done; no other feature pages exist yet.
 
 ## Local development infrastructure
 

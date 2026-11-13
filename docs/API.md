@@ -130,6 +130,7 @@ itself. Revisit if that scoping turns out to be wrong.
 | POST | `/api/v1/auth/logout` | Destroy the session (requires session + CSRF token) | FD-010 |
 | GET | `/api/v1/auth/me` | Current user's profile (no memberships yet — see below) | FD-011 |
 | POST | `/api/v1/organizations` | Create a business workspace, creator becomes Owner | FD-013 |
+| GET | `/api/v1/organizations` | List the caller's own organization memberships | FD-014 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |
@@ -145,6 +146,12 @@ itself. Revisit if that scoping turns out to be wrong.
 - `slug` is auto-generated from `name` (collision-handled with `-2`, `-3`, ... suffixes) — not accepted in the request
 - The `Organization` row and the creator's `Membership(role=owner)` row commit together in one transaction; a failure on either leaves neither persisted
 - No `GET`/`PATCH /organizations/{id}` yet — Section 11.1's endpoint outline lists them, but the backlog's own Epic E02 table has no separate task for them; only creation was assigned to FD-013. Flagging this as a backlog gap rather than inventing scope.
+
+**`GET /organizations` specifics (FD-014):**
+- Requires a valid session (no CSRF token — it's a read)
+- Lists only the caller's *own* memberships, each with the organization's public data, the caller's `role` in it, `status`, and `joined_at` — scoped by `g.current_user`, never by a client-supplied `user_id`/`org_id`, so there's no cross-tenant surface by construction
+- A membership with status `inactive`/`suspended` still appears (with that status shown), rather than being silently filtered out — mirrors FR-009's "deactivation never deletes historical visibility," applied to membership here. This endpoint doesn't grant *access* to anything; once FD-015 (RBAC) builds org-scoped read/write endpoints, those must check `status == active` themselves — a non-active membership showing up in this list is not the same as it granting access elsewhere
+- Deliberately does **not** implement listing the *members of* a given organization (`GET /organizations/{id}/members`) — that requires deciding who can see other members, which is a permissions question for FD-015, not this task
 
 **Registration (`POST /auth/register`) specifics:**
 - Request: `{"name": "...", "email": "...", "password": "..."}` — `password` is 8–128 characters, no forced complexity rules (follows NIST 800-63B rather than inventing a policy the spec doesn't specify)

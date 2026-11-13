@@ -206,9 +206,9 @@ paths:
         Creates a business workspace and makes the authenticated caller
         its Owner, atomically (both rows commit together or neither
         persists). slug is auto-generated from name (collision-handled);
-        currency/timezone default to USD/UTC if not given. No GET/PATCH
-        for a single organization yet - not part of this task (FD-013),
-        only creation was assigned.
+        currency/timezone default to USD/UTC if not given. No
+        GET/PATCH /organizations/{id} for a single organization yet -
+        Section 11.1 lists them but no backlog task has assigned them.
       operationId: postOrganizations
       security:
         - sessionCookie: []
@@ -251,6 +251,39 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "422":
           description: Validation failed (including unknown/forbidden extra fields, e.g. role or user_id)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    get:
+      tags: [Organizations]
+      summary: List my organizations
+      description: >
+        Lists the authenticated caller's own organization memberships -
+        always scoped to the caller, never another user's (no org_id or
+        user_id accepted in the request). Memberships with a non-active
+        status still appear, with that status shown - deactivation never
+        hides history (mirrors FR-009's rule for employee status).
+      operationId: getOrganizations
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The caller's memberships
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/MembershipPublic"
+        "401":
+          description: Not authenticated
           content:
             application/json:
               schema:
@@ -379,6 +412,23 @@ components:
           type: string
           nullable: true
         created_at:
+          type: string
+          format: date-time
+
+    MembershipPublic:
+      type: object
+      description: The caller's own membership in one organization.
+      required: [organization, role, status, joined_at]
+      properties:
+        organization:
+          $ref: "#/components/schemas/OrganizationPublic"
+        role:
+          type: string
+          enum: [owner, manager, employee, accountant, customer_support]
+        status:
+          type: string
+          enum: [active, inactive, suspended]
+        joined_at:
           type: string
           format: date-time
 

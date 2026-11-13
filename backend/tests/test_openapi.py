@@ -46,6 +46,7 @@ def test_openapi_documents_the_real_organizations_endpoint():
     spec = _load_spec()
 
     assert "post" in spec["paths"]["/organizations"]
+    assert "get" in spec["paths"]["/organizations"]
 
 
 def test_openapi_file_has_exactly_one_components_block():
@@ -68,6 +69,7 @@ def test_openapi_schemas_referenced_by_new_endpoints_are_defined():
     assert "UserPublic" in schemas
     assert "CreateOrganizationRequest" in schemas
     assert "OrganizationPublic" in schemas
+    assert "MembershipPublic" in schemas
 
 
 def test_openapi_json_endpoint_serves_the_same_spec(client):

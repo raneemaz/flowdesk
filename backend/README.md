@@ -5,10 +5,11 @@ tasks, etc.) are added incrementally per the backlog in
 [`docs/FlowDesk_Specification.md`](../docs/FlowDesk_Specification.md);
 the application skeleton, database connection, migration pipeline, API
 documentation infra, auth (model, registration, login/logout,
-current-user), and organizations (model + creation) exist so far
-(FD-002, FD-004, FD-005, FD-007, FD-008, FD-009, FD-010, FD-011,
-FD-012, FD-013). No GET/PATCH for a single organization yet - not part
-of any assigned task (see docs/API.md).
+current-user), and organizations (model, creation, listing caller's own
+memberships) exist so far (FD-002, FD-004, FD-005, FD-007, FD-008,
+FD-009, FD-010, FD-011, FD-012, FD-013, FD-014). No GET/PATCH for a
+single organization, and no "list members of an org" endpoint - neither
+is part of any assigned task yet (see docs/API.md).
 
 ## Structure
 
@@ -28,7 +29,8 @@ backend/
     auth/                   schemas.py, service.py, decorators.py (login_required, csrf_protect), routes.py:
                               POST /api/v1/auth/register, /login, /logout; GET /me
     organizations/           schemas.py, service.py (create_organization - slug generation, transactional
-                              Owner Membership), routes.py: POST /api/v1/organizations
+                              Owner Membership; list_user_memberships), routes.py:
+                              POST /api/v1/organizations, GET /organizations
     health/              GET /api/v1/health (liveness + DB connectivity status)
     docs/                 GET /api/v1/openapi.json, GET /api/v1/docs (Swagger UI)
   migrations/            Alembic migration environment (flask db <cmd>)

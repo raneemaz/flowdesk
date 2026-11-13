@@ -68,5 +68,13 @@ class Membership(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
     organization = relationship("Organization", back_populates="memberships")
     user = relationship("User", back_populates="memberships")
 
+    def to_public_dict(self) -> dict:
+        return {
+            "organization": self.organization.to_public_dict(),
+            "role": self.role.value,
+            "status": self.status.value,
+            "joined_at": self.joined_at.isoformat(),
+        }
+
     def __repr__(self) -> str:
         return f"<Membership org={self.organization_id} user={self.user_id} role={self.role.value}>"
