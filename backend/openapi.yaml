@@ -16,6 +16,101 @@ tags:
     description: Account registration and authentication
 
 paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Start a session
+      description: >
+        Verifies credentials and starts a server-side (Redis-backed)
+        session. Returns a CSRF token that must be sent back as
+        X-CSRF-Token on subsequent state-changing authenticated requests.
+      operationId: postAuthLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [user, csrf_token]
+                        properties:
+                          user:
+                            $ref: "#/components/schemas/UserPublic"
+                          csrf_token:
+                            type: string
+        "400":
+          description: Malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Invalid email or password (generic - never reveals which)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Credentials were correct, but the account is not active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                suspended:
+                  value:
+                    success: false
+                    error:
+                      code: ACCOUNT_SUSPENDED
+                      message: This account is suspended.
+                      details: {}
+        "422":
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: End the current session
+      description: Destroys the server-side session. Requires an authenticated session and a valid CSRF token.
+      operationId: postAuthLogout
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+        "401":
+          description: Not authenticated (no session, or the account is no longer active)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing or invalid CSRF token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /auth/register:
     post:
       tags: [Auth]
@@ -108,7 +203,36 @@ paths:
                     data: { status: ok, database: ok }
 
 components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: >
+        Server-side (Redis-backed) session, issued by POST /auth/login.
+        State-changing requests also require the X-CSRF-Token header
+        (see csrfToken below).
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: >
+        Double-submit CSRF token returned by POST /auth/login. Required
+        on state-changing requests made with an authenticated session
+        (e.g. POST /auth/logout); not required for login/register
+        themselves, since no session exists yet to protect.
+
   schemas:
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
     RegisterRequest:
       type: object
       required: [name, email, password]

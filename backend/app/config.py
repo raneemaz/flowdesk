@@ -6,7 +6,9 @@ regardless of import order, and tests that monkeypatch os.environ before
 calling create_app() see their changes take effect.
 """
 import os
+from datetime import timedelta
 
+import redis
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -34,6 +36,25 @@ class Config:
         self.SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL")
         self.SQLALCHEMY_ENGINE_OPTIONS = _engine_options()
 
+        # Server-side sessions (Redis), per Section 35 open decision #3.
+        # redis.from_url() is lazy - it does not connect until first used,
+        # so this is safe even when Redis isn't reachable yet.
+        self.SESSION_TYPE = "redis"
+        self.SESSION_REDIS = redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+        self.SESSION_PERMANENT = True
+        self.PERMANENT_SESSION_LIFETIME = timedelta(days=int(os.environ.get("SESSION_LIFETIME_DAYS", "7")))
+        # SESSION_USE_SIGNER is deliberately omitted: Flask-Session 0.8.0
+        # deprecated it (no documented replacement yet, slated for
+        # near-term removal). The session ID itself is already a long
+        # cryptographically random value; HttpOnly/Secure/SameSite below
+        # remain the primary cookie protections regardless.
+        self.SESSION_KEY_PREFIX = "flowdesk:session:"
+        self.SESSION_COOKIE_HTTPONLY = True
+        self.SESSION_COOKIE_SAMESITE = os.environ.get("SESSION_COOKIE_SAMESITE", "Lax")
+        # Default false for local (non-HTTPS) dev; ProductionConfig flips
+        # the default to true per NFR-002 (all production traffic is HTTPS).
+        self.SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
+
 
 class DevelopmentConfig(Config):
     def __init__(self):
@@ -49,11 +70,21 @@ class TestingConfig(Config):
         self.SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "test-secret-key-not-for-production")
         self.SQLALCHEMY_DATABASE_URI = os.environ.get("TEST_DATABASE_URL", os.environ.get("DATABASE_URL"))
 
+        # No Redis in this dev environment (same gap as Docker in FD-006) -
+        # fakeredis stands in so tests still exercise the real Flask-Session
+        # Redis code path. Dev/production always use genuine Redis above.
+        # fakeredis is dev/test-only (requirements-dev.txt); importing it
+        # lazily here keeps it off the production dependency list.
+        import fakeredis
+
+        self.SESSION_REDIS = fakeredis.FakeStrictRedis()
+
 
 class ProductionConfig(Config):
     def __init__(self):
         super().__init__()
         self.DEBUG = False
+        self.SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() == "true"
 
 
 CONFIG_BY_NAME = {

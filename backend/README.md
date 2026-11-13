@@ -4,8 +4,9 @@ Flask API for FlowDesk. Domain modules (auth, organizations, employees,
 tasks, etc.) are added incrementally per the backlog in
 [`docs/FlowDesk_Specification.md`](../docs/FlowDesk_Specification.md);
 the application skeleton, database connection, migration pipeline, API
-documentation infra, the first domain model, and registration exist so
-far (FD-002, FD-004, FD-005, FD-007, FD-008, FD-009).
+documentation infra, the first domain model, registration, and
+login/logout exist so far (FD-002, FD-004, FD-005, FD-007, FD-008,
+FD-009, FD-010).
 
 ## Structure
 
@@ -17,11 +18,12 @@ backend/
     __init__.py        Application factory, blueprint registration
     config.py           Per-environment config (FLASK_ENV: development/testing/production);
                           loads .env and reads env vars fresh per create_app() call
-    extensions.py         SQLAlchemy + Flask-Migrate instances, naming convention
-    errors.py            APIError + central error handlers (hybrid envelope)
+    extensions.py         SQLAlchemy + Flask-Migrate + Flask-Session instances, naming convention
+    errors.py            APIError + central error handlers (hybrid envelope) + WSGI safety net
     security.py            Password hashing (Argon2id) - see docs/DATABASE.md
     models/                SQLAlchemy models (see docs/DATABASE.md for the schema)
-    auth/                   POST /api/v1/auth/register (schemas.py, service.py, routes.py)
+    auth/                   schemas.py, service.py, decorators.py (login_required, csrf_protect), routes.py:
+                              POST /api/v1/auth/register, /login, /logout
     health/              GET /api/v1/health (liveness + DB connectivity status)
     docs/                 GET /api/v1/openapi.json, GET /api/v1/docs (Swagger UI)
   migrations/            Alembic migration environment (flask db <cmd>)
@@ -71,6 +73,46 @@ catch everything (e.g. column renames), and in FD-008 it generated a
 created, which breaks a later re-upgrade (`type "..." already exists`).
 Always check a generated enum-dropping migration's `downgrade()` for
 this.
+
+## Sessions (FD-010)
+
+Server-side, Redis-backed (Flask-Session) — decided over client-side
+signed cookies per Section 35 open decision #3, so logout and account
+suspension can actually revoke a session immediately rather than waiting
+for a cookie to expire client-side. Full rationale and the CSRF/session-
+fixation details are in [`docs/API.md`](../docs/API.md)'s Authentication
+section and the docstrings in `app/auth/service.py`.
+
+Relevant env vars (`.env.example`): `REDIS_URL`, `SESSION_LIFETIME_DAYS`
+(default 7), `SESSION_COOKIE_SAMESITE` (default `Lax`),
+`SESSION_COOKIE_SECURE` (default `false` in dev, `true` in production).
+**`SESSION_COOKIE_SAMESITE`/`SECURE` will need to change at actual
+deployment time** if the frontend (Vercel) and backend (Render) end up on
+different registrable domains — true cross-site cookies need
+`SameSite=None; Secure` plus CORS configured with credentials and an
+explicit allowed origin, not the wildcard default. Not yet relevant since
+hosting domains aren't chosen (Section 35 open decision #13).
+
+**No Redis in this dev environment** (same gap as Docker in FD-006 — no
+service, no binary installed here). Tests use `fakeredis` as a stand-in
+so they still exercise the real Flask-Session Redis code path;
+`development`/`production` always point at genuine Redis and are
+**unverified here**. Confirmed this concretely: hit `/auth/login` against
+the dev server without Redis running and got a clean `500
+INTERNAL_SERVER_ERROR` envelope (not a leak, not a hang) - see the WSGI
+safety net below. Once `docker compose up` is actually run (FD-006),
+this becomes fully verifiable.
+
+## Error handling note (found during FD-010)
+
+`@app.errorhandler` only covers Flask's view-dispatch phase. An
+exception raised *after* a view successfully returns — during response
+finalization, e.g. Flask-Session failing to save to Redis — bypasses it
+entirely and would otherwise leak Werkzeug's raw default error page
+(violating NFR-007). `app/errors.py` now also wraps `app.wsgi_app` as a
+last-resort catch-all so this class of failure still returns the hybrid
+envelope. Regression-tested in `tests/test_errors.py` via a deliberately
+failing `after_request` hook (general mechanism, not Redis-specific).
 
 ## API conventions & docs
 

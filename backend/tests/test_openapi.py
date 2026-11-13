@@ -29,6 +29,33 @@ def test_openapi_documents_the_real_register_endpoint():
     assert "post" in spec["paths"]["/auth/register"]
 
 
+def test_openapi_documents_the_real_login_and_logout_endpoints():
+    spec = _load_spec()
+
+    assert "post" in spec["paths"]["/auth/login"]
+    assert "post" in spec["paths"]["/auth/logout"]
+
+
+def test_openapi_file_has_exactly_one_components_block():
+    """A second top-level `components:` key is valid YAML but silently
+    clobbers the first (last key wins) - caught once already while
+    writing this file. Checking the raw text, not the parsed dict (which
+    can only ever show the surviving one), is what actually catches it."""
+    with open(OPENAPI_FILE) as f:
+        lines = f.readlines()
+
+    top_level_components_lines = [line for line in lines if line.rstrip("\n") == "components:"]
+    assert len(top_level_components_lines) == 1
+
+
+def test_openapi_schemas_referenced_by_new_endpoints_are_defined():
+    spec = _load_spec()
+    schemas = spec["components"]["schemas"]
+
+    assert "LoginRequest" in schemas
+    assert "UserPublic" in schemas
+
+
 def test_openapi_json_endpoint_serves_the_same_spec(client):
     response = client.get("/api/v1/openapi.json")
 

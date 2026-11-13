@@ -7,7 +7,7 @@ from app.auth.routes import auth_bp
 from app.config import API_PREFIX, CONFIG_BY_NAME
 from app.docs.routes import build_swagger_ui_blueprint, docs_bp
 from app.errors import register_error_handlers
-from app.extensions import db, migrate
+from app.extensions import db, migrate, sess
 from app.health.routes import health_bp
 
 # Importing app.models registers every model's table on db.metadata, so
@@ -32,6 +32,7 @@ def create_app(config_name=None):
 
     db.init_app(app)
     migrate.init_app(app, db)
+    sess.init_app(app)
 
     register_error_handlers(app)
     register_blueprints(app)

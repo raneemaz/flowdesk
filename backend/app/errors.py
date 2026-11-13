@@ -8,8 +8,11 @@ Route/service code in later tasks should raise APIError for expected,
 user-facing failures (validation, conflict, etc.) instead of building
 JSON responses by hand.
 """
+import json
+
 from flask import jsonify
 from werkzeug.exceptions import HTTPException
+from werkzeug.wrappers import Response as WerkzeugResponse
 
 _HTTP_STATUS_CODES = {
     400: "BAD_REQUEST",
@@ -59,3 +62,30 @@ def register_error_handlers(app):
             {},
             500,
         )
+
+    _install_wsgi_safety_net(app)
+
+
+def _install_wsgi_safety_net(app):
+    """@app.errorhandler only covers Flask's view-dispatch phase. An
+    exception raised afterward, during response finalization (e.g.
+    Flask-Session failing to write to Redis after the view already
+    returned successfully), propagates past it entirely and would
+    otherwise reach the client as Werkzeug's raw default error page
+    instead of our envelope - violating NFR-007. This wraps the WSGI app
+    itself as a last-resort catch-all."""
+    flask_wsgi_app = app.wsgi_app
+
+    def wsgi_app_with_safety_net(environ, start_response):
+        try:
+            return flask_wsgi_app(environ, start_response)
+        except Exception:
+            app.logger.exception("Unhandled exception escaped Flask's own error handling")
+            body = {
+                "success": False,
+                "error": {"code": "INTERNAL_SERVER_ERROR", "message": "An unexpected error occurred.", "details": {}},
+            }
+            response = WerkzeugResponse(json.dumps(body), status=500, mimetype="application/json")
+            return response(environ, start_response)
+
+    app.wsgi_app = wsgi_app_with_safety_net

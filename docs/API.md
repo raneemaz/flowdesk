@@ -86,24 +86,48 @@ The response adds a `meta` object alongside `data`:
 
 ## Authentication
 
-Login/session mechanism not yet implemented (FD-010) — this section will
-be filled in once the session/cookie mechanism is decided (spec Section
-35, open decision #3) and built.
+Server-side (Redis-backed) sessions, decided in FD-010 per Section 35
+open decision #3 — see `docs/DATABASE.md`-adjacent reasoning in
+`backend/app/auth/service.py`'s docstrings for the full rationale. Short
+version:
+
+- `POST /auth/login` verifies credentials and returns a session cookie
+  (`HttpOnly`; `Secure`/`SameSite` configurable via env, see
+  `backend/README.md`) plus a `csrf_token` in the response body.
+- Authenticated, state-changing requests must send that token back as
+  an `X-CSRF-Token` header. `GET` requests don't need it (nothing to
+  protect — CSRF only matters for requests that change state).
+- `POST /auth/logout` requires both the session cookie and a valid
+  `X-CSRF-Token`, and destroys the session server-side immediately (not
+  just a client-side cookie deletion — a copied/stolen session cookie
+  stops working the instant logout is called, which is the whole point
+  of choosing server-side over client-side sessions).
+- Login/register themselves are **not** CSRF-protected — no session
+  exists yet at that point to protect.
+- On login, the session ID is rotated (not just its contents) to prevent
+  session fixation; found and fixed during FD-010's own review, see the
+  docstring on `create_session()`.
+- On every authenticated request, the account's `status` is re-checked,
+  not just at login — a session created while active stops working
+  immediately once the account is suspended, not only on the next login
+  attempt.
 
 **Registration (FD-009) does not start a session.** `POST /auth/register`
-only creates the `User` row and returns it; the frontend (or caller) must
-then call login (FD-010) separately. This is a deliberate reading of the
-backlog's dependency map over FR-001's prose — FR-001 describes
-registration as atomically creating a business workspace too, but FD-013
-(organization creation) depends on FD-010 (login), meaning organization
-creation is intentionally a separate, authenticated step, not part of
-registration itself. Revisit if that scoping turns out to be wrong.
+only creates the `User` row and returns it; the caller must then call
+login separately. This is a deliberate reading of the backlog's
+dependency map over FR-001's prose — FR-001 describes registration as
+atomically creating a business workspace too, but FD-013 (organization
+creation) depends on FD-010 (login), meaning organization creation is
+intentionally a separate, authenticated step, not part of registration
+itself. Revisit if that scoping turns out to be wrong.
 
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
 |---|---|---|---|
 | POST | `/api/v1/auth/register` | Create a `User` account (no session, no organization) | FD-009 |
+| POST | `/api/v1/auth/login` | Verify credentials, start a session, return a CSRF token | FD-010 |
+| POST | `/api/v1/auth/logout` | Destroy the session (requires session + CSRF token) | FD-010 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |
@@ -113,5 +137,10 @@ registration itself. Revisit if that scoping turns out to be wrong.
 - Email is normalized (trimmed, lowercased) before uniqueness is checked or stored
 - Duplicate email → `409 EMAIL_ALREADY_REGISTERED`, checked via the database's own unique constraint (not a check-then-insert) so concurrent duplicate registrations can't both succeed
 - Response never includes `password_hash`
+
+**Login (`POST /auth/login`) specifics:**
+- Request: `{"email": "...", "password": "..."}`
+- Wrong password and unknown email return the **identical** `401 INVALID_CREDENTIALS` response — including response *timing*: the Argon2 verification always runs (against a fixed dummy hash when no account matches), so a non-existent email can't be distinguished from a wrong password by how long the request takes
+- Account status (`inactive`/`suspended`) is only revealed with a specific `403 ACCOUNT_<STATUS>` once credentials are already proven correct — not before, to avoid leaking account state to a guessing attacker
 
 See `backend/openapi.yaml` for the full machine-readable contract.
