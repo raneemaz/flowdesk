@@ -67,8 +67,11 @@ contract), FD-008 (User model — the first domain model), FD-009
 (registration), FD-010 (login/logout, Redis-backed sessions, CSRF),
 FD-011 (`GET /auth/me`), FD-012 (Organization + Membership models —
 first organization-scoped data), FD-013 (organization creation, creator
-becomes Owner), and FD-014 (`GET /organizations` — list the caller's own
-memberships) are Done; no other feature pages exist yet.
+becomes Owner), FD-014 (`GET /organizations` — list the caller's own
+memberships), and FD-015 (centralized RBAC — permission definitions,
+`require_permission` decorator, object-level membership checks; see
+`docs/API.md`'s Authorization section) are Done; no other feature
+pages exist yet.
 
 ## Local development infrastructure
 

@@ -121,6 +121,104 @@ creation) depends on FD-010 (login), meaning organization creation is
 intentionally a separate, authenticated step, not part of registration
 itself. Revisit if that scoping turns out to be wrong.
 
+## Authorization (RBAC)
+
+Centralized in `backend/app/authz/` (FD-015) - never a scattered
+role-name check in a route handler (spec Section 7.3). Three pieces:
+
+- **`app/authz/permissions.py`** - `Permission` (one entry per
+  capability in spec Section 7.2) and `PermissionScope`
+  (`full` / `limited` / `own` / `assigned` / `none`), joined by
+  `ROLE_PERMISSIONS: dict[MembershipRole, dict[Permission, PermissionScope]]`
+  - a fully resolved matrix with **every** cell explicit, no implicit
+  defaults.
+- **`app/authz/service.py`** - object-level checks: `get_active_membership_or_404(user, organization_id)`
+  (the one place that answers "is this user currently an active member
+  of this org?"), `check_scope_allows(scope, ...)` (does a granted
+  scope cover one specific record), `can_assign_role(...)` (the
+  role-change guard below).
+- **`app/authz/decorators.py`** - `require_permission(permission)`,
+  applied to a view *inside* (i.e. below) `@login_required`. It reads
+  `organization_id` from the view's own URL path parameter only -
+  never from the request body or query string, so an org can't be
+  switched by forging a field - resolves it to an active membership via
+  `get_active_membership_or_404`, and rejects with `403 FORBIDDEN` if
+  the role's scope for that permission is `none`. On success it sets
+  `g.current_membership` and `g.permission_scope` for the view/service
+  to use (e.g. filtering a list query by `assignee_id` when the scope
+  is `assigned`).
+
+**A missing membership, a membership in a different organization, and
+an inactive/suspended membership are all indistinguishable `404`s** -
+never `403` - consistent with the "never confirm existence" rule in the
+status-code table above. Only once an *active* membership is confirmed
+does a role's lack of permission become a `403`.
+
+**Permission baseline matrix** (spec Section 7.2, with every "Limited" /
+"As granted" / "If assigned" / "Own-limited" / "Relevant subset" cell
+resolved per Section 35 open decision #9 - resolved now, ahead of the
+features that will consume most of them, at the user's explicit
+direction):
+
+| Capability | Owner | Manager | Employee | Accountant | Customer Support |
+|---|---|---|---|---|---|
+| Organization settings | Full | Limited¹ | None | None | None |
+| Invite/manage memberships | Full | Limited² | None | None | None |
+| View employee directory | Full | Full | Limited³ | Limited³ | Limited³ |
+| Manage departments | Full | Full | None | None | None |
+| Create/assign tasks | Full | Full | None⁴ | None | None |
+| View/update own assigned task | Full | Full | Assigned | Assigned | Assigned |
+| Manage customers | Full | Full | None⁵ | Full | Full |
+| Manage customer requests | Full | Full | Assigned | None | Full |
+| Manage invoices/payments | Full | None | None | Full | None |
+| View financial reports | Full | None | None | Full | None |
+| View operational analytics | Full | Full | Own⁶ | Limited⁷ | Limited⁸ |
+| View activity history | Full | Full | Own⁹ | Limited¹⁰ | Limited¹⁰ |
+
+1. Manager may edit `logo`/`email`/`phone`/`address`/`date_format` but
+   never `name`/`slug`/`currency`/`timezone`, and can never delete the
+   org or transfer ownership - those are identity/financial-impacting
+   fields reserved for the Owner.
+2. Manager may invite members and assign/change roles only among
+   Employee/Accountant/CustomerSupport, and only for a target whose
+   *current* role is also one of those three - can never touch an
+   Owner or another Manager, and can never promote anyone to Owner or
+   Manager. See `can_assign_role()`.
+3. Name, role, and status of other active members only - never another
+   member's email/phone/other contact details (reserved for
+   Owner/Manager).
+4. Resolves Section 35 open decision #8: employees may not create or
+   assign tasks in V1, only act on tasks already assigned to them.
+5. Resolved toward the stricter reading of the matrix's "Limited/No" -
+   least privilege, no stated business need; Accountant/CustomerSupport
+   already cover the customer-facing and financial roles.
+6. Personal productivity analytics only (e.g. "my tasks this week"),
+   never an org-wide dashboard.
+7. The financial analytics subset (revenue, invoices, payments trends).
+8. The customer/request analytics subset (volume, resolution time).
+9. Activity entries about the employee's own actions/records only.
+10. Accountant: activity tied to invoices/payments/financial records.
+    CustomerSupport: activity tied to customers/requests.
+
+**No one may ever change their own role**, regardless of scope -
+resolves spec Section 13's mandatory scenario ("Employee tries to
+change their own role -> `403`"), generalized to every role (an Owner
+can't self-demote out of their own org either). Enforced by
+`can_assign_role()`, not yet wired to an endpoint (no membership-role-change
+endpoint is assigned to any task yet).
+
+**Not yet consumed by a real endpoint.** FD-015 is pure infrastructure
+- organization creation/listing (FD-013/FD-014) predate RBAC and aren't
+org-scoped by nature (creating a brand-new org, or listing the caller's
+own memberships). The first real consumers are later tasks that nest
+their routes under `/organizations/<organization_id>/...`: FD-016
+(employee invitations), FD-021 (departments), FD-026 (tasks), FD-035
+(customers), FD-042 (invoices), FD-047/FD-048 (activity logs/notifications).
+Each of those still needs to apply its own scope-based field/query
+filtering for `limited`/`own`/`assigned` - the matrix above is the
+contract, not the implementation, for the resources that don't exist
+yet.
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |

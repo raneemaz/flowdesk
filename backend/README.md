@@ -5,11 +5,15 @@ tasks, etc.) are added incrementally per the backlog in
 [`docs/FlowDesk_Specification.md`](../docs/FlowDesk_Specification.md);
 the application skeleton, database connection, migration pipeline, API
 documentation infra, auth (model, registration, login/logout,
-current-user), and organizations (model, creation, listing caller's own
-memberships) exist so far (FD-002, FD-004, FD-005, FD-007, FD-008,
-FD-009, FD-010, FD-011, FD-012, FD-013, FD-014). No GET/PATCH for a
-single organization, and no "list members of an org" endpoint - neither
-is part of any assigned task yet (see docs/API.md).
+current-user), organizations (model, creation, listing caller's own
+memberships), and centralized RBAC (permission definitions, decorator,
+object-level membership checks) exist so far (FD-002, FD-004, FD-005,
+FD-007, FD-008, FD-009, FD-010, FD-011, FD-012, FD-013, FD-014, FD-015).
+No GET/PATCH for a single organization, and no "list members of an
+org" endpoint - neither is part of any assigned task yet (see
+docs/API.md). RBAC isn't consumed by a real endpoint yet either - it's
+infrastructure for the org-scoped resources later tasks build (see
+docs/API.md's Authorization section).
 
 ## Structure
 
@@ -31,6 +35,9 @@ backend/
     organizations/           schemas.py, service.py (create_organization - slug generation, transactional
                               Owner Membership; list_user_memberships), routes.py:
                               POST /api/v1/organizations, GET /organizations
+    authz/                   permissions.py (Permission, PermissionScope, ROLE_PERMISSIONS matrix),
+                              service.py (get_active_membership_or_404, check_scope_allows, can_assign_role),
+                              decorators.py (require_permission) - see docs/API.md's Authorization section
     health/              GET /api/v1/health (liveness + DB connectivity status)
     docs/                 GET /api/v1/openapi.json, GET /api/v1/docs (Swagger UI)
   migrations/            Alembic migration environment (flask db <cmd>)
