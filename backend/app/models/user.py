@@ -1,7 +1,7 @@
 import enum
 
 from sqlalchemy import Enum, String
-from sqlalchemy.orm import Mapped, mapped_column, validates
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.extensions import db
 from app.models.base import TimestampMixin, UUIDPrimaryKeyMixin
@@ -34,6 +34,11 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
         ),
         nullable=False,
         default=UserStatus.ACTIVE,
+    )
+
+    # See Organization.memberships for why passive_deletes=True.
+    memberships = relationship(
+        "Membership", back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
 
     @validates("email")

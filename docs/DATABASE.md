@@ -56,3 +56,65 @@ defined for employee/membership status, not the global `User` identity.
 `invited` doesn't apply here since invitation state belongs to
 `Invitation`/`Membership`. Flag this in review if it should instead
 mirror the membership enum exactly.
+
+### `organizations` (FD-012)
+
+A business workspace. Required-field policy is Section 35 open decision
+#1, resolved with explicit user sign-off: `name`/`slug` are always
+required; `currency`/`timezone` are required but default (USD/UTC) so
+creation is never blocked by them; everything else is optional and
+fillable later in settings.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `name` | varchar(255) | required, trimmed, non-empty |
+| `slug` | varchar(255) | required, unique, normalized to lowercase; letters/digits/hyphens only. Auto-generation from `name` (with collision handling) is FD-013's job, not this model's - this only enforces the column's own format/uniqueness invariants |
+| `logo` | varchar(2048) | optional (URL) |
+| `email` | varchar(320) | optional, org contact email - distinct from any `User.email` |
+| `phone` | varchar(50) | optional |
+| `address` | text | optional, unstructured for V1 |
+| `currency` | varchar(3) | required, defaults to `'USD'`; normalized to uppercase, must be exactly 3 letters (ISO 4217 format, not validated against a real currency list) |
+| `timezone` | varchar(64) | required, defaults to `'UTC'` (IANA zone name expected, not validated) |
+| `date_format` | varchar(32) | optional |
+| `created_at`, `updated_at` | timestamptz | |
+
+No `owner_id` column - ownership is represented via `Membership.role ==
+OWNER`, not a direct reference, matching the spec's own field list for
+Organization (Section 10.1) and avoiding a redundant pointer that could
+drift from the Membership table.
+
+### `memberships` (FD-012)
+
+Links a `User` to an `Organization` with a role. Unique on
+`(organization_id, user_id)` at the DB level (`uq_memberships_organization_id_user_id`)
+- a user cannot have two memberships in the same org. Both FK columns
+are individually indexed (`ix_memberships_organization_id`,
+`ix_memberships_user_id`) since org-scoped queries filtering by either
+are the common case everywhere from here on.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `organization_id` | UUID | required, FK -> `organizations.id`, `ON DELETE CASCADE` |
+| `user_id` | UUID | required, FK -> `users.id`, `ON DELETE CASCADE` |
+| `role` | enum (`membership_role`) | `owner` / `manager` / `employee` / `accountant` / `customer_support` - spec Section 7.1's five roles |
+| `status` | enum (`membership_status`) | `active` / `inactive` / `suspended`; defaults to `active` |
+| `joined_at` | timestamptz | defaults to creation time |
+| `created_at`, `updated_at` | timestamptz | |
+
+**`status` values are a judgment call** (same pattern as `User.status`):
+a `Membership` row represents an already-accepted relationship, so it
+doesn't need an `invited` state - that will live on the separate
+`Invitation` entity (FD-016, not yet built) once it exists.
+
+**Cascade behavior, reviewed by `tenant-security-reviewer`:** deleting
+an `Organization` removes only *its own* memberships (scoped by
+`organization_id`); deleting a `User` removes only *their* memberships
+(scoped by `user_id`) - cascades never cross organizational boundaries,
+confirmed by `test_deleting_one_organizations_membership_does_not_touch_another_organizations`.
+Both relationships use `passive_deletes=True` so parent deletion relies
+on the DB's `ON DELETE CASCADE` instead of SQLAlchemy loading every
+child row first; `cascade="all, delete-orphan"` is kept alongside it for
+explicit in-session manipulation (e.g. removing an item from
+`org.memberships`).
