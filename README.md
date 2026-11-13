@@ -37,6 +37,9 @@ flowdesk/
   README.md
   .gitignore
   .env.example
+  docker-compose.yml   # Postgres + Redis for local dev (FD-006)
+  docker/
+    postgres-initdb/    # creates the second (test) database on first boot
   docs/
     FlowDesk_Specification.md
   backend/            # Flask API (set up in FD-002+)
@@ -54,9 +57,39 @@ This project is being built incrementally against a 65-task backlog
 priorities defined in the specification. FD-001 (repository structure),
 FD-002 (Flask app factory, config, central error handling, health check),
 FD-003 (React/Vite/TS/Router/TanStack Query/Tailwind/shadcn scaffold),
-FD-004 (PostgreSQL + SQLAlchemy connection, sessions, pooling), and
-FD-005 (Alembic/Flask-Migrate, naming convention, baseline migration) are
-Done; no domain models or feature pages exist yet.
+FD-004 (PostgreSQL + SQLAlchemy connection, sessions, pooling),
+FD-005 (Alembic/Flask-Migrate, naming convention, baseline migration), and
+FD-006 (Docker Compose dev infrastructure for Postgres + Redis) are Done;
+no domain models or feature pages exist yet.
+
+## Local development infrastructure
+
+`docker-compose.yml` runs Postgres and Redis as containers so you don't
+need either installed natively:
+
+```bash
+cp .env.example .env   # fill in POSTGRES_PASSWORD etc.
+docker compose up -d
+```
+
+This creates two databases on first boot — `POSTGRES_DB` (dev) and
+`POSTGRES_TEST_DB` (test), via `docker/postgres-initdb/` — matching the
+dev/test split the backend already expects (FD-004/FD-005). Point
+`DATABASE_URL` / `TEST_DATABASE_URL` in `.env` at the container using the
+same credentials and `DB_HOST_PORT`.
+
+If port 5432 or 6379 is already taken by a native Postgres/Redis install
+on your machine, override `DB_HOST_PORT` / `REDIS_HOST_PORT` in `.env`
+before starting the containers, or stop the native services first — both
+would otherwise try to bind the same host port.
+
+**Not yet verified against a live Docker daemon.** This repository's
+development environment doesn't have Docker Desktop installed, so
+`docker-compose.yml` has only been validated against the official Compose
+Specification JSON schema and had its init script's SQL logic exercised
+directly against a real Postgres instance — not run end-to-end with
+`docker compose up`. If something doesn't start cleanly on a machine that
+does have Docker, that's the first place to look.
 
 ## Development workflow
 
