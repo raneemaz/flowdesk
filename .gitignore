@@ -1,0 +1,49 @@
+# ---- Secrets & environment ----
+.env
+.env.*
+!.env.example
+
+# ---- Python / Flask backend ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.Python
+instance/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# ---- Node / React frontend ----
+node_modules/
+dist/
+build/
+.vite/
+.turbo/
+*.local
+
+# ---- Local databases ----
+*.sqlite3
+*.sqlite
+*.db
+
+# ---- Logs ----
+*.log
+logs/
+
+# ---- Editor / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---- Docker ----
+*.pid
