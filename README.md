@@ -43,16 +43,16 @@ flowdesk/
   frontend/           # React + TypeScript SPA (set up in FD-003+)
 ```
 
-`backend/` and `frontend/` are placeholders at this stage — the application
-code, dependencies, and tooling for each are introduced in later backlog
-tasks (FD-002 and FD-003), not in this initial commit.
+`backend/` now has a working Flask application skeleton (FD-002); `frontend/`
+is still a placeholder, introduced in FD-003.
 
 ## Status
 
 This project is being built incrementally against a 65-task backlog
 (FD-001 through FD-065), strictly respecting the dependency map and
-priorities defined in the specification. No application functionality
-exists yet; this commit establishes the repository structure only.
+priorities defined in the specification. FD-001 (repository structure) and
+FD-002 (Flask app factory, config, central error handling, health check) are
+Done; no other application functionality exists yet.
 
 ## Development workflow
 
@@ -72,5 +72,6 @@ been verified by running its tests — see Section 31 of the specification.
 
 ## Getting started
 
-Setup, running, and testing instructions will be added as the backend
-(FD-002) and frontend (FD-003) are initialized.
+Backend setup, running, and testing instructions are in
+[`backend/README.md`](backend/README.md). Frontend instructions will be
+added once FD-003 initializes the React app.
