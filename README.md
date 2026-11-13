@@ -42,6 +42,7 @@ flowdesk/
     postgres-initdb/    # creates the second (test) database on first boot
   docs/
     FlowDesk_Specification.md
+    API.md               # API conventions (versioning, envelopes, pagination, status codes)
   backend/            # Flask API (set up in FD-002+)
   frontend/           # React + TypeScript SPA (set up in FD-003+)
 ```
@@ -58,9 +59,10 @@ priorities defined in the specification. FD-001 (repository structure),
 FD-002 (Flask app factory, config, central error handling, health check),
 FD-003 (React/Vite/TS/Router/TanStack Query/Tailwind/shadcn scaffold),
 FD-004 (PostgreSQL + SQLAlchemy connection, sessions, pooling),
-FD-005 (Alembic/Flask-Migrate, naming convention, baseline migration), and
-FD-006 (Docker Compose dev infrastructure for Postgres + Redis) are Done;
-no domain models or feature pages exist yet.
+FD-005 (Alembic/Flask-Migrate, naming convention, baseline migration),
+FD-006 (Docker Compose dev infrastructure for Postgres + Redis), and
+FD-007 (API conventions documented in `docs/API.md` + a live OpenAPI
+contract) are Done; no domain models or feature pages exist yet.
 
 ## Local development infrastructure
 

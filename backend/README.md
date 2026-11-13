@@ -3,15 +3,16 @@
 Flask API for FlowDesk. Domain modules (auth, organizations, employees,
 tasks, etc.) are added incrementally per the backlog in
 [`docs/FlowDesk_Specification.md`](../docs/FlowDesk_Specification.md);
-only the application skeleton, database connection, and migration
-pipeline exist so far (FD-002, FD-004, FD-005). No domain models yet
-(FD-008+).
+only the application skeleton, database connection, migration pipeline,
+and API documentation infra exist so far (FD-002, FD-004, FD-005,
+FD-007). No domain models yet (FD-008+).
 
 ## Structure
 
 ```
 backend/
   wsgi.py              Entry point (`app = create_app()`)
+  openapi.yaml          Hand-maintained API contract (OpenAPI 3.0.3)
   app/
     __init__.py        Application factory, blueprint registration
     config.py           Per-environment config (FLASK_ENV: development/testing/production);
@@ -19,6 +20,7 @@ backend/
     extensions.py         SQLAlchemy + Flask-Migrate instances, naming convention
     errors.py            APIError + central error handlers (hybrid envelope)
     health/              GET /api/v1/health (liveness + DB connectivity status)
+    docs/                 GET /api/v1/openapi.json, GET /api/v1/docs (Swagger UI)
   migrations/            Alembic migration environment (flask db <cmd>)
   tests/                 Pytest suite
 ```
@@ -30,9 +32,10 @@ Requires a running PostgreSQL instance. `DATABASE_URL` (dev) and
 runs never touch dev data. Connection pooling (`pool_pre_ping`, `pool_size`,
 `max_overflow`, `pool_recycle`) is configured via `SQLALCHEMY_ENGINE_OPTIONS`
 in `app/config.py`, tunable via the `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` env
-vars. No models or migrations exist yet (FD-005 adds Alembic/Flask-Migrate).
+vars.
 
-Local dev database setup (once, on a local PostgreSQL install):
+Local dev database setup (once, on a local PostgreSQL install — or use
+`docker compose up` from the project root instead, see the root README):
 
 ```sql
 CREATE ROLE flowdesk LOGIN PASSWORD '...';
@@ -42,8 +45,7 @@ CREATE DATABASE flowdesk_test OWNER flowdesk;
 
 Then set `DATABASE_URL` / `TEST_DATABASE_URL` in `.env` (scheme
 `postgresql+psycopg://`, matching the `psycopg` v3 driver in
-`requirements.txt`) accordingly. FD-006 will replace manual local setup
-with Docker Compose.
+`requirements.txt`) accordingly.
 
 ## Migrations
 
@@ -63,16 +65,17 @@ exist yet. Each future model-adding task should produce its own migration
 via `flask db migrate`, reviewed before committing (autogenerate doesn't
 catch everything, e.g. column renames).
 
-## Response envelope
+## API conventions & docs
 
-Success: `{"success": true, "message": "...", "data": {...}}`
+Full conventions (versioning, response/error/pagination envelopes, status
+codes) are in [`docs/API.md`](../docs/API.md). The machine-readable
+contract is `openapi.yaml`, served live:
 
-Error: `{"success": false, "error": {"code": "...", "message": "...", "details": {...}}}`
+- `GET /api/v1/openapi.json` — the spec as JSON
+- `GET /api/v1/docs` — interactive Swagger UI
 
-Route/service code should raise `app.errors.APIError(message, status_code, code, details)`
-for expected, user-facing failures rather than building a JSON response by hand.
-Unhandled exceptions and standard HTTP errors (404, 405, etc.) are converted
-to the same envelope automatically.
+Update `openapi.yaml` (and `docs/API.md` if the convention itself
+changes) whenever an endpoint is added or changed.
 
 ## Setup
 
