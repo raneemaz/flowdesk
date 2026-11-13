@@ -43,16 +43,17 @@ flowdesk/
   frontend/           # React + TypeScript SPA (set up in FD-003+)
 ```
 
-`backend/` now has a working Flask application skeleton (FD-002); `frontend/`
-is still a placeholder, introduced in FD-003.
+`backend/` has a working Flask application skeleton (FD-002); `frontend/`
+has a working Vite + React + TypeScript skeleton (FD-003).
 
 ## Status
 
 This project is being built incrementally against a 65-task backlog
 (FD-001 through FD-065), strictly respecting the dependency map and
-priorities defined in the specification. FD-001 (repository structure) and
-FD-002 (Flask app factory, config, central error handling, health check) are
-Done; no other application functionality exists yet.
+priorities defined in the specification. FD-001 (repository structure),
+FD-002 (Flask app factory, config, central error handling, health check),
+and FD-003 (React/Vite/TS/Router/TanStack Query/Tailwind/shadcn scaffold)
+are Done; no feature pages or API integration exist yet.
 
 ## Development workflow
 
@@ -73,5 +74,5 @@ been verified by running its tests — see Section 31 of the specification.
 ## Getting started
 
 Backend setup, running, and testing instructions are in
-[`backend/README.md`](backend/README.md). Frontend instructions will be
-added once FD-003 initializes the React app.
+[`backend/README.md`](backend/README.md); frontend instructions are in
+[`frontend/README.md`](frontend/README.md).
