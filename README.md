@@ -64,8 +64,8 @@ FD-005 (Alembic/Flask-Migrate, naming convention, baseline migration),
 FD-006 (Docker Compose dev infrastructure for Postgres + Redis),
 FD-007 (API conventions documented in `docs/API.md` + a live OpenAPI
 contract), FD-008 (User model — the first domain model), FD-009
-(registration), and FD-010 (login/logout, Redis-backed sessions, CSRF)
-are Done; no feature pages exist yet.
+(registration), FD-010 (login/logout, Redis-backed sessions, CSRF), and
+FD-011 (`GET /auth/me`) are Done; no feature pages exist yet.
 
 ## Local development infrastructure
 

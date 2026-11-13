@@ -36,6 +36,12 @@ def test_openapi_documents_the_real_login_and_logout_endpoints():
     assert "post" in spec["paths"]["/auth/logout"]
 
 
+def test_openapi_documents_the_real_me_endpoint():
+    spec = _load_spec()
+
+    assert "get" in spec["paths"]["/auth/me"]
+
+
 def test_openapi_file_has_exactly_one_components_block():
     """A second top-level `components:` key is valid YAML but silently
     clobbers the first (last key wins) - caught once already while

@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 from pydantic import ValidationError
 
 from app.auth.decorators import csrf_protect, login_required
@@ -77,4 +77,19 @@ def post_logout():
     destroy_session()
 
     body = {"success": True, "message": "Logged out successfully", "data": None}
+    return jsonify(body), 200
+
+
+@auth_bp.route("/auth/me", methods=["GET"])
+@login_required
+def get_me():
+    # Memberships aren't included yet - the Membership model doesn't
+    # exist until FD-012+. Adding an always-empty "memberships" field now
+    # would be a placeholder, not real functionality; a later task
+    # extends this response once there's real membership data to return.
+    body = {
+        "success": True,
+        "message": "Current user retrieved",
+        "data": g.current_user.to_public_dict(),
+    }
     return jsonify(body), 200

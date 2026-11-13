@@ -128,9 +128,14 @@ itself. Revisit if that scoping turns out to be wrong.
 | POST | `/api/v1/auth/register` | Create a `User` account (no session, no organization) | FD-009 |
 | POST | `/api/v1/auth/login` | Verify credentials, start a session, return a CSRF token | FD-010 |
 | POST | `/api/v1/auth/logout` | Destroy the session (requires session + CSRF token) | FD-010 |
+| GET | `/api/v1/auth/me` | Current user's profile (no memberships yet — see below) | FD-011 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |
+
+**`GET /auth/me` specifics:**
+- Requires a valid session (no CSRF token needed — it's a read, not a state change)
+- Returns only the profile today; no `memberships` field, since the `Membership` model doesn't exist until FD-012+. A later task extends this response once there's real membership data to return — don't add an empty placeholder array in the meantime.
 
 **Registration (`POST /auth/register`) specifics:**
 - Request: `{"name": "...", "email": "...", "password": "..."}` — `password` is 8–128 characters, no forced complexity rules (follows NIST 800-63B rather than inventing a policy the spec doesn't specify)

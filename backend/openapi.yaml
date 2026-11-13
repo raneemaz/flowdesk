@@ -111,6 +111,36 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get the current user
+      description: >
+        Returns the authenticated user's profile. Does not yet include
+        organization memberships - the Membership model doesn't exist
+        until FD-012+; this response will grow once it does.
+      operationId: getAuthMe
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/UserPublic"
+        "401":
+          description: Not authenticated (no session, or the account is no longer active)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /auth/register:
     post:
       tags: [Auth]
