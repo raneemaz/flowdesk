@@ -9,6 +9,11 @@ from app.errors import register_error_handlers
 from app.extensions import db, migrate
 from app.health.routes import health_bp
 
+# Importing app.models registers every model's table on db.metadata, so
+# Alembic autogenerate and db.create_all() both see them. Required even
+# though nothing here references the names directly.
+from app import models  # noqa: F401
+
 
 def create_app(config_name=None):
     config_name = config_name or os.environ.get("FLASK_ENV", "development")
