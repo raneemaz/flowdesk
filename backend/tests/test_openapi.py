@@ -22,6 +22,13 @@ def test_openapi_documents_the_real_health_endpoint():
     assert "get" in spec["paths"]["/health"]
 
 
+def test_openapi_documents_the_real_register_endpoint():
+    spec = _load_spec()
+
+    assert "/auth/register" in spec["paths"]
+    assert "post" in spec["paths"]["/auth/register"]
+
+
 def test_openapi_json_endpoint_serves_the_same_spec(client):
     response = client.get("/api/v1/openapi.json")
 

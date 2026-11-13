@@ -56,5 +56,15 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
     def verify_password(self, raw_password: str) -> bool:
         return verify_password(self.password_hash, raw_password)
 
+    def to_public_dict(self) -> dict:
+        """Safe for API responses - never includes password_hash."""
+        return {
+            "id": str(self.id),
+            "name": self.name,
+            "email": self.email,
+            "status": self.status.value,
+            "created_at": self.created_at.isoformat(),
+        }
+
     def __repr__(self) -> str:
         return f"<User {self.email}>"

@@ -12,8 +12,64 @@ servers:
 tags:
   - name: Health
     description: Service liveness and dependency status
+  - name: Auth
+    description: Account registration and authentication
 
 paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Create a new account
+      description: >
+        Creates a User only - does not create an organization or start a
+        session. Organization creation is a separate, authenticated step
+        (see spec FD-013); session/cookie login is FD-010.
+      operationId: postAuthRegister
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Account created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/UserPublic"
+        "400":
+          description: Malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                duplicate:
+                  value:
+                    success: false
+                    error:
+                      code: EMAIL_ALREADY_REGISTERED
+                      message: An account with this email already exists.
+                      details: { email: already registered }
+        "422":
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /health:
     get:
       tags: [Health]
@@ -53,6 +109,43 @@ paths:
 
 components:
   schemas:
+    RegisterRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: Never logged or echoed back.
+
+    UserPublic:
+      type: object
+      description: User, safe for API responses - never includes password_hash.
+      required: [id, name, email, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        status:
+          type: string
+          enum: [active, inactive, suspended]
+        created_at:
+          type: string
+          format: date-time
+
     SuccessEnvelope:
       type: object
       description: Shape of every successful response.

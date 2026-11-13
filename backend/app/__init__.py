@@ -3,6 +3,7 @@ import os
 
 from flask import Flask
 
+from app.auth.routes import auth_bp
 from app.config import API_PREFIX, CONFIG_BY_NAME
 from app.docs.routes import build_swagger_ui_blueprint, docs_bp
 from app.errors import register_error_handlers
@@ -39,6 +40,7 @@ def create_app(config_name=None):
 
 
 def register_blueprints(app):
+    app.register_blueprint(auth_bp, url_prefix=API_PREFIX)
     app.register_blueprint(health_bp, url_prefix=API_PREFIX)
     app.register_blueprint(docs_bp, url_prefix=API_PREFIX)
     app.register_blueprint(build_swagger_ui_blueprint())

@@ -86,16 +86,32 @@ The response adds a `meta` object alongside `data`:
 
 ## Authentication
 
-Not yet implemented (FD-009/FD-010). This section will be filled in once
-the session/cookie mechanism is decided (spec Section 35, open decision
-#3) and built.
+Login/session mechanism not yet implemented (FD-010) — this section will
+be filled in once the session/cookie mechanism is decided (spec Section
+35, open decision #3) and built.
+
+**Registration (FD-009) does not start a session.** `POST /auth/register`
+only creates the `User` row and returns it; the frontend (or caller) must
+then call login (FD-010) separately. This is a deliberate reading of the
+backlog's dependency map over FR-001's prose — FR-001 describes
+registration as atomically creating a business workspace too, but FD-013
+(organization creation) depends on FD-010 (login), meaning organization
+creation is intentionally a separate, authenticated step, not part of
+registration itself. Revisit if that scoping turns out to be wrong.
 
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
 |---|---|---|---|
+| POST | `/api/v1/auth/register` | Create a `User` account (no session, no organization) | FD-009 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |
+
+**Registration (`POST /auth/register`) specifics:**
+- Request: `{"name": "...", "email": "...", "password": "..."}` — `password` is 8–128 characters, no forced complexity rules (follows NIST 800-63B rather than inventing a policy the spec doesn't specify)
+- Email is normalized (trimmed, lowercased) before uniqueness is checked or stored
+- Duplicate email → `409 EMAIL_ALREADY_REGISTERED`, checked via the database's own unique constraint (not a check-then-insert) so concurrent duplicate registrations can't both succeed
+- Response never includes `password_hash`
 
 See `backend/openapi.yaml` for the full machine-readable contract.

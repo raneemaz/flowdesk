@@ -4,8 +4,8 @@ Flask API for FlowDesk. Domain modules (auth, organizations, employees,
 tasks, etc.) are added incrementally per the backlog in
 [`docs/FlowDesk_Specification.md`](../docs/FlowDesk_Specification.md);
 the application skeleton, database connection, migration pipeline, API
-documentation infra, and the first domain model exist so far (FD-002,
-FD-004, FD-005, FD-007, FD-008).
+documentation infra, the first domain model, and registration exist so
+far (FD-002, FD-004, FD-005, FD-007, FD-008, FD-009).
 
 ## Structure
 
@@ -21,6 +21,7 @@ backend/
     errors.py            APIError + central error handlers (hybrid envelope)
     security.py            Password hashing (Argon2id) - see docs/DATABASE.md
     models/                SQLAlchemy models (see docs/DATABASE.md for the schema)
+    auth/                   POST /api/v1/auth/register (schemas.py, service.py, routes.py)
     health/              GET /api/v1/health (liveness + DB connectivity status)
     docs/                 GET /api/v1/openapi.json, GET /api/v1/docs (Swagger UI)
   migrations/            Alembic migration environment (flask db <cmd>)
