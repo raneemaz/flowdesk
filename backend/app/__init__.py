@@ -9,6 +9,7 @@ from app.docs.routes import build_swagger_ui_blueprint, docs_bp
 from app.errors import register_error_handlers
 from app.extensions import db, migrate, sess
 from app.health.routes import health_bp
+from app.organizations.routes import organizations_bp
 
 # Importing app.models registers every model's table on db.metadata, so
 # Alembic autogenerate and db.create_all() both see them. Required even
@@ -42,6 +43,7 @@ def create_app(config_name=None):
 
 def register_blueprints(app):
     app.register_blueprint(auth_bp, url_prefix=API_PREFIX)
+    app.register_blueprint(organizations_bp, url_prefix=API_PREFIX)
     app.register_blueprint(health_bp, url_prefix=API_PREFIX)
     app.register_blueprint(docs_bp, url_prefix=API_PREFIX)
     app.register_blueprint(build_swagger_ui_blueprint())

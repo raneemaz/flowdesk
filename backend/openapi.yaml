@@ -14,6 +14,8 @@ tags:
     description: Service liveness and dependency status
   - name: Auth
     description: Account registration and authentication
+  - name: Organizations
+    description: Business workspaces
 
 paths:
   /auth/login:
@@ -117,8 +119,9 @@ paths:
       summary: Get the current user
       description: >
         Returns the authenticated user's profile. Does not yet include
-        organization memberships - the Membership model doesn't exist
-        until FD-012+; this response will grow once it does.
+        organization memberships in the response - not part of any
+        assigned task yet, even though the Membership model exists
+        (FD-012). Revisit once a task explicitly calls for it.
       operationId: getAuthMe
       security:
         - sessionCookie: []
@@ -147,8 +150,8 @@ paths:
       summary: Create a new account
       description: >
         Creates a User only - does not create an organization or start a
-        session. Organization creation is a separate, authenticated step
-        (see spec FD-013); session/cookie login is FD-010.
+        session. Organization creation (POST /organizations) is a
+        separate, authenticated step requiring login first.
       operationId: postAuthRegister
       requestBody:
         required: true
@@ -190,6 +193,64 @@ paths:
                       details: { email: already registered }
         "422":
           description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations:
+    post:
+      tags: [Organizations]
+      summary: Create an organization
+      description: >
+        Creates a business workspace and makes the authenticated caller
+        its Owner, atomically (both rows commit together or neither
+        persists). slug is auto-generated from name (collision-handled);
+        currency/timezone default to USD/UTC if not given. No GET/PATCH
+        for a single organization yet - not part of this task (FD-013),
+        only creation was assigned.
+      operationId: postOrganizations
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrganizationRequest"
+      responses:
+        "201":
+          description: Organization created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/OrganizationPublic"
+        "400":
+          description: Malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing or invalid CSRF token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (including unknown/forbidden extra fields, e.g. role or user_id)
           content:
             application/json:
               schema:
@@ -253,6 +314,74 @@ components:
         themselves, since no session exists yet to protect.
 
   schemas:
+    CreateOrganizationRequest:
+      type: object
+      description: Unknown fields are rejected (422), not silently dropped - e.g. role or user_id cannot be smuggled in to influence who becomes Owner.
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        logo:
+          type: string
+          maxLength: 2048
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          maxLength: 50
+        address:
+          type: string
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          description: ISO 4217 code; defaults to USD if omitted.
+        timezone:
+          type: string
+          maxLength: 64
+          description: IANA zone name; defaults to UTC if omitted.
+        date_format:
+          type: string
+          maxLength: 32
+
+    OrganizationPublic:
+      type: object
+      required: [id, name, slug, currency, timezone, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        logo:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        currency:
+          type: string
+        timezone:
+          type: string
+        date_format:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
     LoginRequest:
       type: object
       required: [email, password]

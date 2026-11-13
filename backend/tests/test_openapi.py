@@ -42,6 +42,12 @@ def test_openapi_documents_the_real_me_endpoint():
     assert "get" in spec["paths"]["/auth/me"]
 
 
+def test_openapi_documents_the_real_organizations_endpoint():
+    spec = _load_spec()
+
+    assert "post" in spec["paths"]["/organizations"]
+
+
 def test_openapi_file_has_exactly_one_components_block():
     """A second top-level `components:` key is valid YAML but silently
     clobbers the first (last key wins) - caught once already while
@@ -60,6 +66,8 @@ def test_openapi_schemas_referenced_by_new_endpoints_are_defined():
 
     assert "LoginRequest" in schemas
     assert "UserPublic" in schemas
+    assert "CreateOrganizationRequest" in schemas
+    assert "OrganizationPublic" in schemas
 
 
 def test_openapi_json_endpoint_serves_the_same_spec(client):

@@ -42,6 +42,17 @@ def _error_response(code, message, details, status_code):
     return jsonify(body), status_code
 
 
+def validation_error_details(exc) -> dict:
+    """Converts a pydantic ValidationError into our error envelope's
+    `details` shape. Shared across every route that validates a request
+    body with a pydantic schema."""
+    details = {}
+    for error in exc.errors():
+        field = ".".join(str(part) for part in error["loc"]) or "body"
+        details[field] = error["msg"]
+    return details
+
+
 def register_error_handlers(app):
     @app.errorhandler(APIError)
     def handle_api_error(err):

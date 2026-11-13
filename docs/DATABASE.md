@@ -69,7 +69,7 @@ fillable later in settings.
 |---|---|---|
 | `id` | UUID | PK |
 | `name` | varchar(255) | required, trimmed, non-empty |
-| `slug` | varchar(255) | required, unique, normalized to lowercase; letters/digits/hyphens only. Auto-generation from `name` (with collision handling) is FD-013's job, not this model's - this only enforces the column's own format/uniqueness invariants |
+| `slug` | varchar(255) | required, unique, normalized to lowercase; letters/digits/hyphens only. Auto-generated from `name` by `app.organizations.service.create_organization()` (FD-013), with `-2`/`-3`/... collision handling - this model only enforces the column's own format/uniqueness invariants |
 | `logo` | varchar(2048) | optional (URL) |
 | `email` | varchar(320) | optional, org contact email - distinct from any `User.email` |
 | `phone` | varchar(50) | optional |

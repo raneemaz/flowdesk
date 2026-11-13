@@ -60,5 +60,20 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
             raise ValueError("currency must be a 3-letter ISO 4217 code")
         return normalized
 
+    def to_public_dict(self) -> dict:
+        return {
+            "id": str(self.id),
+            "name": self.name,
+            "slug": self.slug,
+            "logo": self.logo,
+            "email": self.email,
+            "phone": self.phone,
+            "address": self.address,
+            "currency": self.currency,
+            "timezone": self.timezone,
+            "date_format": self.date_format,
+            "created_at": self.created_at.isoformat(),
+        }
+
     def __repr__(self) -> str:
         return f"<Organization {self.slug}>"

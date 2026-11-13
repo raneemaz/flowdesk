@@ -129,13 +129,22 @@ itself. Revisit if that scoping turns out to be wrong.
 | POST | `/api/v1/auth/login` | Verify credentials, start a session, return a CSRF token | FD-010 |
 | POST | `/api/v1/auth/logout` | Destroy the session (requires session + CSRF token) | FD-010 |
 | GET | `/api/v1/auth/me` | Current user's profile (no memberships yet — see below) | FD-011 |
+| POST | `/api/v1/organizations` | Create a business workspace, creator becomes Owner | FD-013 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |
 
 **`GET /auth/me` specifics:**
 - Requires a valid session (no CSRF token needed — it's a read, not a state change)
-- Returns only the profile today; no `memberships` field, since the `Membership` model doesn't exist until FD-012+. A later task extends this response once there's real membership data to return — don't add an empty placeholder array in the meantime.
+- Returns only the profile today; no `memberships` field. The `Membership` model exists since FD-012, but adding it to this response isn't part of any assigned task yet — don't add an empty placeholder array speculatively; extend this once a task explicitly calls for it.
+
+**`POST /organizations` specifics:**
+- Requires a valid session + CSRF token (state-changing)
+- Request: `{"name": "...", ...optional: logo/email/phone/address/currency/timezone/date_format}` — only `name` is required (Section 35 open decision #1, resolved with the user); `currency`/`timezone` default to `USD`/`UTC` if omitted
+- Unknown/extra fields (e.g. `role`, `user_id`, `organization_id`) are rejected with `422`, not silently dropped — there's no way to specify a different owner or inject a role
+- `slug` is auto-generated from `name` (collision-handled with `-2`, `-3`, ... suffixes) — not accepted in the request
+- The `Organization` row and the creator's `Membership(role=owner)` row commit together in one transaction; a failure on either leaves neither persisted
+- No `GET`/`PATCH /organizations/{id}` yet — Section 11.1's endpoint outline lists them, but the backlog's own Epic E02 table has no separate task for them; only creation was assigned to FD-013. Flagging this as a backlog gap rather than inventing scope.
 
 **Registration (`POST /auth/register`) specifics:**
 - Request: `{"name": "...", "email": "...", "password": "..."}` — `password` is 8–128 characters, no forced complexity rules (follows NIST 800-63B rather than inventing a policy the spec doesn't specify)

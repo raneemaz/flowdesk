@@ -5,9 +5,10 @@ tasks, etc.) are added incrementally per the backlog in
 [`docs/FlowDesk_Specification.md`](../docs/FlowDesk_Specification.md);
 the application skeleton, database connection, migration pipeline, API
 documentation infra, auth (model, registration, login/logout,
-current-user), and the Organization/Membership models exist so far
+current-user), and organizations (model + creation) exist so far
 (FD-002, FD-004, FD-005, FD-007, FD-008, FD-009, FD-010, FD-011,
-FD-012). No organization endpoints yet (FD-013+).
+FD-012, FD-013). No GET/PATCH for a single organization yet - not part
+of any assigned task (see docs/API.md).
 
 ## Structure
 
@@ -20,11 +21,14 @@ backend/
     config.py           Per-environment config (FLASK_ENV: development/testing/production);
                           loads .env and reads env vars fresh per create_app() call
     extensions.py         SQLAlchemy + Flask-Migrate + Flask-Session instances, naming convention
-    errors.py            APIError + central error handlers (hybrid envelope) + WSGI safety net
+    errors.py            APIError + central error handlers (hybrid envelope) + WSGI safety net +
+                            validation_error_details() shared by every pydantic-validated route
     security.py            Password hashing (Argon2id) - see docs/DATABASE.md
     models/                SQLAlchemy models (see docs/DATABASE.md for the schema)
     auth/                   schemas.py, service.py, decorators.py (login_required, csrf_protect), routes.py:
                               POST /api/v1/auth/register, /login, /logout; GET /me
+    organizations/           schemas.py, service.py (create_organization - slug generation, transactional
+                              Owner Membership), routes.py: POST /api/v1/organizations
     health/              GET /api/v1/health (liveness + DB connectivity status)
     docs/                 GET /api/v1/openapi.json, GET /api/v1/docs (Swagger UI)
   migrations/            Alembic migration environment (flask db <cmd>)
