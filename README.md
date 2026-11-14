@@ -70,10 +70,12 @@ first organization-scoped data), FD-013 (organization creation, creator
 becomes Owner), FD-014 (`GET /organizations` — list the caller's own
 memberships), FD-015 (centralized RBAC — permission definitions,
 `require_permission` decorator, object-level membership checks; see
-`docs/API.md`'s Authorization section), and FD-016 (employee
+`docs/API.md`'s Authorization section), FD-016 (employee
 invitations — secure expiring tokens, real SMTP email delivery,
-acceptance, cancellation; RBAC's first real consumer) are Done; no
-other feature pages exist yet.
+acceptance, cancellation; RBAC's first real consumer), and FD-017
+(authentication frontend — login/register, protected routes, auth
+state; see `frontend/README.md`) are Done; no other feature pages
+exist yet.
 
 ## Local development infrastructure
 

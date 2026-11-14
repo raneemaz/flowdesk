@@ -1,13 +1,17 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import { App } from "@/App";
+import * as authApi from "@/api/auth";
 
 describe("App", () => {
-  it("renders the root route via the router and query provider", () => {
+  it("redirects an unauthenticated visitor from the protected root route to /login", async () => {
+    vi.spyOn(authApi, "getCurrentUser").mockRejectedValue(new Error("401"));
+
     render(<App />);
 
-    expect(screen.getByRole("heading", { name: "FlowDesk" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "It works" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Log in to FlowDesk" })).toBeInTheDocument();
+    });
   });
 });
