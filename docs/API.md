@@ -473,14 +473,14 @@ membership in this organization and can't equal the target's own
 `membership_id` (`422 INVALID_MANAGER_MEMBERSHIP` otherwise, covering
 missing/cross-org/inactive/self-as-own-manager identically).
 
-## Tasks (FD-026, FD-027)
+## Tasks (FD-026, FD-027, FD-028)
 
-Centralized in `backend/app/tasks/`. Creation, retrieval, and
-assignment/reassignment so far - the status workflow is FD-028,
-editing and deadline validation is FD-029, comments are FD-030, and
-history *retrieval* is FD-031, all separate future tasks.
-Assignment (FD-027, below) is the first action to actually record a
-`TaskHistory` row - creation (FD-026) deliberately doesn't.
+Centralized in `backend/app/tasks/`. Creation, retrieval, assignment/
+reassignment, and the status workflow so far - editing and deadline
+validation is FD-029, comments are FD-030, and history *retrieval* is
+FD-031, all separate future tasks. Assignment (FD-027) was the first
+action to actually record a `TaskHistory` row - creation (FD-026)
+deliberately doesn't; status changes (FD-028, below) are the second.
 
 **`POST /organizations/{organization_id}/tasks` - gated by
 `TASK_CREATE_ASSIGN`** (`full` for Owner/Manager, `none` for everyone
@@ -559,6 +559,46 @@ row, same convention `DELETE /departments/{id}`'s soft-deactivate
 already established - validation still runs first, so a no-op can't
 be used to skip `INVALID_ASSIGNEE` checking.
 
+**`PATCH /organizations/{organization_id}/tasks/{task_id}/status` -
+gated by `TASK_VIEW_UPDATE`**, which never grants `none`, so the real
+authorization lives entirely in the service layer
+(`app/tasks/service.py`'s `update_task_status`), checked in order:
+
+1. **Object-level reach** (`check_scope_allows`, same as the
+   single-task `GET`) - an `assigned`-scope caller acting on a task
+   that isn't theirs is `403`, before anything else - including before
+   the idempotency check below, so a non-assignee can't use a
+   same-status request as a free oracle for a task's current status.
+2. **Idempotent no-op** - requesting the status a task already has is
+   a `200` that writes no `TaskHistory` row.
+3. **Transition-graph validity** (`422 INVALID_STATUS_TRANSITION`) -
+   checked for *every* caller, Owner/Manager included: FR-012's `to_do
+   → in_progress → under_review → completed` happy path, plus
+   `under_review → in_progress` ("managers can return tasks for
+   revision" - FR-012's own words) and `* → cancelled` from any
+   non-terminal status. `completed` and `cancelled` are both terminal
+   - the spec states this explicitly only for `cancelled`; treating
+   `completed` the same way is a judgment call (the conservative
+   default for an unspecified "reopen" concept, reversible later since
+   nothing about it is migration-dependent). No stage-skipping (e.g.
+   `to_do → completed` directly) is legal for anyone.
+4. **Role reach for *this* transition** (`403`) - only `assigned`-scope
+   callers are restricted further, to the two "forward progress" moves
+   an assignee drives themselves (`to_do → in_progress`, `in_progress
+   → under_review`); approving (`→ completed`), returning for revision,
+   and cancelling are Owner/Manager-only, grounded in spec Section
+   7.2's own "View/update own assigned task" baseline-matrix row and
+   `app/authz/permissions.py`'s existing comment that `TASK_VIEW_UPDATE`
+   is how an employee "act[s] on tasks already assigned to them."
+
+Body: `{"status": "to_do"|"in_progress"|"under_review"|"completed"|"cancelled"}`
+- required (every task always has exactly one status; there's no
+"clear it" concept the way assignment has `null`). `404` for a
+missing or cross-organization `task_id`. A real transition writes a
+`TaskHistory` row (`event_type: "status_changed"`, raw `previous_value`/
+`new_value` status strings, `actor_membership_id` the caller) - FR-012's
+"every change records actor + timestamp."
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -584,6 +624,7 @@ be used to skip `INVALID_ASSIGNEE` checking.
 | GET | `/api/v1/organizations/{organization_id}/tasks` | Search/filter/paginate the org's tasks (full or assigned-only scope) | FD-026 |
 | GET | `/api/v1/organizations/{organization_id}/tasks/{task_id}` | View one task | FD-026 |
 | PATCH | `/api/v1/organizations/{organization_id}/tasks/{task_id}/assign` | Assign/reassign/unassign a task, recording history | FD-027 |
+| PATCH | `/api/v1/organizations/{organization_id}/tasks/{task_id}/status` | Move a task through its status workflow, recording history | FD-028 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |

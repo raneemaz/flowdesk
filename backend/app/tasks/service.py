@@ -260,3 +260,100 @@ def assign_task(
     )
     db.session.commit()
     return task
+
+
+# FD-028's status workflow (FR-012): "To Do -> In Progress -> Under
+# Review -> Completed, with Cancelled as a terminal state... managers
+# can return tasks for revision; unauthorized transitions are
+# blocked." The spec states the happy path and two explicit rules
+# (managers may return under_review -> in_progress; cancelled is
+# terminal) but not the full graph or who may trigger each edge - the
+# rest is a judgment call, grounded directly in spec Section 7.2's own
+# "View/update own assigned task" baseline-matrix row (Owner/Manager
+# Full, Employee/Accountant/CustomerSupport "If assigned") and
+# app/authz/permissions.py's own comment that TASK_VIEW_UPDATE is how
+# an employee "act[s] on tasks already assigned to them".
+#
+# `completed` is treated as terminal too, even though the spec only
+# says this explicitly for `cancelled` - the more conservative
+# default for an undefined "reopen" concept; easy to revisit later
+# since nothing below is migration-dependent.
+_STATUS_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
+    TaskStatus.TODO: {TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED},
+    TaskStatus.IN_PROGRESS: {TaskStatus.UNDER_REVIEW, TaskStatus.CANCELLED},
+    TaskStatus.UNDER_REVIEW: {TaskStatus.COMPLETED, TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED},
+    TaskStatus.COMPLETED: set(),
+    TaskStatus.CANCELLED: set(),
+}
+
+# The subset of _STATUS_TRANSITIONS an `assigned`-scope caller (the
+# task's own assignee) may trigger themselves, without Owner/Manager
+# involvement - only the two "forward progress" moves an assignee
+# naturally drives. Approving (-> completed), returning for revision
+# (-> in_progress from under_review - FR-012 reserves this to
+# managers explicitly), and cancelling are all Owner/Manager-only.
+_ASSIGNEE_ALLOWED_TRANSITIONS: set[tuple[TaskStatus, TaskStatus]] = {
+    (TaskStatus.TODO, TaskStatus.IN_PROGRESS),
+    (TaskStatus.IN_PROGRESS, TaskStatus.UNDER_REVIEW),
+}
+
+
+def update_task_status(
+    organization_id: uuid.UUID,
+    task_id: uuid.UUID,
+    *,
+    scope: PermissionScope,
+    caller_membership_id: uuid.UUID,
+    actor_membership_id: uuid.UUID,
+    new_status: TaskStatus,
+) -> Task:
+    """FD-028. Checked in this order:
+    1. Object-level reach (same as get_task) - an `assigned`-scope
+       caller acting on a task that isn't theirs is 403, before
+       anything else runs. This must come before the idempotency
+       no-op check below, or a non-assignee could use a same-status
+       request as a free oracle for the task's current status.
+    2. Idempotent no-op - requesting the status a task already has
+       changes nothing and writes no TaskHistory row, same convention
+       assign_task already established.
+    3. Graph validity (422 INVALID_STATUS_TRANSITION) - checked for
+       *every* caller, Owner/Manager included: a transition that
+       doesn't exist in the workflow at all is rejected regardless of
+       who's asking.
+    4. Role reach for *this specific* transition (403) - only
+       `assigned`-scope callers are restricted further, to
+       _ASSIGNEE_ALLOWED_TRANSITIONS; `full` scope (Owner/Manager) may
+       make any graph-legal transition.
+    """
+    task = get_task_or_404(organization_id, task_id)
+    if not check_scope_allows(scope, caller_id=caller_membership_id, assignee_id=task.assignee_membership_id):
+        raise APIError("You do not have permission to do this.", status_code=403, code="FORBIDDEN")
+
+    previous_status = task.status
+    if new_status == previous_status:
+        return task
+
+    if new_status not in _STATUS_TRANSITIONS.get(previous_status, set()):
+        raise APIError(
+            f"Cannot transition a task from '{previous_status.value}' to '{new_status.value}'.",
+            status_code=422,
+            code="INVALID_STATUS_TRANSITION",
+            details={"status": f"no such transition from {previous_status.value}"},
+        )
+
+    if scope == PermissionScope.ASSIGNED and (previous_status, new_status) not in _ASSIGNEE_ALLOWED_TRANSITIONS:
+        raise APIError("You do not have permission to do this.", status_code=403, code="FORBIDDEN")
+
+    task.status = new_status
+    db.session.add(
+        TaskHistory(
+            organization_id=organization_id,
+            task_id=task.id,
+            actor_membership_id=actor_membership_id,
+            event_type="status_changed",
+            previous_value=previous_status.value,
+            new_value=new_status.value,
+        )
+    )
+    db.session.commit()
+    return task

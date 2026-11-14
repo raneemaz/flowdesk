@@ -1228,6 +1228,81 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/tasks/{task_id}/status:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: task_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Tasks]
+      summary: Move a task through its status workflow
+      description: >
+        Requires TASK_VIEW_UPDATE (never none). full scope (Owner/
+        Manager) may make any transition the workflow graph allows;
+        assigned scope (the task's own assignee) may only drive the
+        two forward-progress moves (to_do -> in_progress, in_progress
+        -> under_review) - approving, returning for revision, and
+        cancelling are Owner/Manager-only. See docs/API.md's Tasks
+        section for the full transition table. Records a TaskHistory
+        row (event_type: status_changed) unless the request is a
+        same-status no-op.
+      operationId: patchOrganizationTaskStatus
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskStatusRequest"
+      responses:
+        "200":
+          description: The task with its updated status
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/TaskPublic"
+        "400":
+          description: Request body is not valid JSON
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, task not assigned to an assigned-scope caller, or this specific transition is Owner/Manager-only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or the task is missing/cross-organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (missing/unknown field, unknown status value, or no such transition from the task's current status)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /health:
     get:
       tags: [Health]
@@ -1571,6 +1646,18 @@ components:
           type: string
           format: uuid
           nullable: true
+
+    UpdateTaskStatusRequest:
+      type: object
+      description: >
+        status is required and never null - every task always has
+        exactly one status (the model's own NOT NULL column).
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [to_do, in_progress, under_review, completed, cancelled]
 
     TaskPublic:
       type: object

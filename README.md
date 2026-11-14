@@ -88,9 +88,10 @@ directory, profile, department management; see
 `frontend/README.md`'s own section), FD-025 (Task/TaskComment/
 TaskHistory models, with indexes; see `docs/DATABASE.md`'s own
 sections), FD-026 (task creation/retrieval — pagination, filters), and
-FD-027 (task assignment/reassignment — validated assignee, history;
-see `docs/API.md`'s Tasks section) are Done; no other feature pages
-exist yet.
+FD-027 (task assignment/reassignment — validated assignee, history),
+and FD-028 (task status workflow — To Do → In Progress → Under Review
+→ Completed, Cancelled terminal; see `docs/API.md`'s Tasks section)
+are Done; no other feature pages exist yet.
 
 ## Local development infrastructure
 

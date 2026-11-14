@@ -80,3 +80,14 @@ class AssignTaskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     assignee_membership_id: uuid.UUID | None
+
+
+class UpdateTaskStatusRequest(BaseModel):
+    """FD-028: body for PATCH /organizations/{id}/tasks/{task_id}/status.
+    `status` is required, not nullable - unlike assignment, "no status"
+    isn't a real task state (every task always has exactly one, the
+    model's own NOT NULL column)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: TaskStatus
