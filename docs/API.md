@@ -51,19 +51,27 @@ response by hand.
 
 ## Pagination
 
-Not demonstrated on a real endpoint yet (no list endpoints exist until
-FD-008+), but established here so every future list endpoint is
-consistent from the start.
+Established in FD-007, ahead of any list endpoint that would need it,
+so every one is consistent from the start. `GET /organizations` and
+`GET /organizations/{organization_id}/invitations` (FD-013/FD-014/FD-016)
+predate it being applied retroactively - small, inherently bounded
+lists (the caller's own orgs; one org's invitations) where
+NFR-010 ("large collections are paginated") doesn't really bite -
+and `GET .../departments` (FD-021) is the same way. **First actually
+implemented by `GET /organizations/{organization_id}/employees`
+(FD-022, below)**, the first list that can realistically grow past a
+page.
 
-List endpoints accept `page` (default `1`) and `per_page` (default `20`,
-max `100`) query params, plus endpoint-specific `sort` and filter params.
-The response adds a `meta` object alongside `data`:
+List endpoints that implement it accept `page` (default `1`) and
+`per_page` (default `20`, max `100`) query params, plus endpoint-specific
+`search` and filter params. The response adds a `meta` object alongside
+`data`:
 
 ```json
 {
   "success": true,
-  "message": "Tasks retrieved",
-  "data": [ { "id": "uuid", "title": "..." } ],
+  "message": "Employees retrieved",
+  "data": [ { "membership_id": "uuid", "name": "..." } ],
   "meta": { "page": 1, "per_page": 20, "total": 134, "total_pages": 7 }
 }
 ```
@@ -213,11 +221,17 @@ then FD-021 (departments, below) - organization creation/listing
 a brand-new org, or listing the caller's own memberships).
 `DEPARTMENT_MANAGE` only ever grants `full` or `none` (no
 `limited`/`own`/`assigned` cell to implement), so FD-021 needed no
-scope-based field/query filtering of its own - later tasks nesting
-routes under `/organizations/<organization_id>/...` - FD-026 (tasks),
-FD-035 (customers), FD-042 (invoices), FD-047/FD-048 (activity
-logs/notifications) - still do; the matrix above is the contract, not
-the implementation, for the resources that don't exist yet.
+scope-based field/query filtering of its own. **`EMPLOYEE_DIRECTORY_VIEW`
+(FD-022, below) is the first permission to actually implement a
+`limited` cell** - footnote 3's "name, role, and status... only" is
+taken literally: the `limited` response has exactly those four keys
+(`membership_id`/`name`/`role`/`status`), nothing else, not even a
+`null`-valued placeholder for the fields a `full`-scope caller gets.
+Later tasks nesting routes under `/organizations/<organization_id>/...`
+- FD-026 (tasks), FD-035 (customers), FD-042 (invoices), FD-047/FD-048
+(activity logs/notifications) - still need their own scope-based
+filtering; the matrix above is the contract, not the implementation,
+for the resources that don't exist yet.
 
 ## Invitations (FD-016)
 
@@ -336,6 +350,64 @@ such membership" from "that membership belongs to someone else's org."
   already-inactive department is a `200` no-op, not an error. Same
   `404` behavior as `PATCH` for a missing/cross-tenant department.
 
+## Employee directory (FD-022)
+
+`GET /organizations/{organization_id}/employees` - gated by
+`EMPLOYEE_DIRECTORY_VIEW` (Authorization section above), which never
+grants `none` - every active member can see *some* version of the
+directory, never a flat `403`. Read-only; a single-record view, create,
+and edit are a separate future task (the spec's endpoint table lists
+`POST`/`PATCH .../employees/{employee_id}` too, but no task is
+assigned to them yet).
+
+**Membership-centric, not profile-centric.** Lists every row with an
+*active* `Membership` in the org (deactivated/suspended memberships are
+excluded entirely, not just hidden - they aren't "on the team" the way
+a deactivated-but-still-a-member `EmployeeProfile` is), left-joining
+`EmployeeProfile` for `job_title`/`department`/`manager`/employment
+`status` - which may not exist yet for a given membership (nothing in
+the codebase auto-creates one; that's a future task). Those fields are
+`null` rather than a fabricated default, including `status`, which
+means `status` is *not* the same thing as `Membership.status` here -
+see `docs/DATABASE.md`'s `employee_profiles` section for why those are
+two intentionally independent concepts.
+
+**Field set depends on the caller's `EMPLOYEE_DIRECTORY_VIEW` scope**
+(see the Authorization section's footnote 3 - taken literally):
+
+| Field | `full` (Owner/Manager) | `limited` (Employee/Accountant/CustomerSupport) |
+|---|---|---|
+| `membership_id`, `name`, `role`, `status` | yes | yes - **and nothing else** |
+| `email`, `job_title`, `joined_at` | yes | not present in the response at all |
+| `department` (`{id, name}` or `null`) | yes | not present |
+| `manager` (`{membership_id, name}` or `null`) | yes | not present |
+
+**`search` matches the member's name only - never email, for any
+scope.** Even for a `full`-scope caller, matching email would let
+`?search=someone@example.com` returning a result confirm that address
+exists in the org - an oracle the `limited` response body itself was
+specifically built to prevent, so the search behavior stays uniform
+regardless of who's asking rather than depending on it.
+
+**A cross-organization `manager_membership_id` or `department_id` can
+never leak a name**, even though nothing write-side validates either
+field yet (no employee-profile write endpoint exists - a future task's
+job): before resolving a manager's name or a department's name for
+display, each lookup is re-filtered by `organization_id` rather than
+trusting the ORM relationship traversal directly, so a reference that
+somehow pointed outside this org just renders as `manager: null` /
+`department: null` instead of showing someone else's employee or
+department.
+
+**Filters** (`department_id`, `role`, `status` - all optional, exact
+match) apply regardless of scope - filtering by e.g. department doesn't
+expose anything a `limited`-scope caller couldn't already reasonably
+know, even though `department` isn't a field in their response.
+**Pagination** uses the contract from the Pagination section above -
+this is the endpoint that actually implements it. `422` on an unknown
+query param, an out-of-range `page`/`per_page`, or a malformed
+`department_id`.
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -354,6 +426,7 @@ such membership" from "that membership belongs to someone else's org."
 | GET | `/api/v1/organizations/{organization_id}/departments` | List every department for the org | FD-021 |
 | PATCH | `/api/v1/organizations/{organization_id}/departments/{department_id}` | Update a department | FD-021 |
 | DELETE | `/api/v1/organizations/{organization_id}/departments/{department_id}` | Deactivate a department (soft) | FD-021 |
+| GET | `/api/v1/organizations/{organization_id}/employees` | Search/filter/paginate the org's employee directory | FD-022 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |

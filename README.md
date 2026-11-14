@@ -77,10 +77,11 @@ acceptance, cancellation; RBAC's first real consumer), FD-017
 state), FD-018 (organization onboarding — creation flow, org switcher;
 see `frontend/README.md`), FD-019 (Department model — org-scoped,
 manager reference), FD-020 (Employee profile model — linked to
-membership, department, manager), and FD-021 (department CRUD —
-list/create/update/deactivate, safe-deletion policy; see
-`docs/API.md`'s Departments section) are Done; no other feature pages
-exist yet.
+membership, department, manager), FD-021 (department CRUD —
+list/create/update/deactivate, safe-deletion policy), and FD-022
+(employee directory API — search, filters, pagination, safe fields
+only; see `docs/API.md`'s Employee directory section) are Done; no
+other feature pages exist yet.
 
 ## Local development infrastructure
 

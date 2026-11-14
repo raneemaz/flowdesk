@@ -67,6 +67,12 @@ def test_openapi_documents_the_real_departments_endpoints():
     assert "delete" in spec["paths"]["/organizations/{organization_id}/departments/{department_id}"]
 
 
+def test_openapi_documents_the_real_employees_endpoint():
+    spec = _load_spec()
+
+    assert "get" in spec["paths"]["/organizations/{organization_id}/employees"]
+
+
 def test_openapi_file_has_exactly_one_components_block():
     """A second top-level `components:` key is valid YAML but silently
     clobbers the first (last key wins) - caught once already while
@@ -93,6 +99,8 @@ def test_openapi_schemas_referenced_by_new_endpoints_are_defined():
     assert "CreateDepartmentRequest" in schemas
     assert "UpdateDepartmentRequest" in schemas
     assert "DepartmentPublic" in schemas
+    assert "EmployeePublic" in schemas
+    assert "PaginationMeta" in schemas
 
 
 def test_openapi_json_endpoint_serves_the_same_spec(client):
