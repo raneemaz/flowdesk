@@ -49,6 +49,15 @@ def test_openapi_documents_the_real_organizations_endpoint():
     assert "get" in spec["paths"]["/organizations"]
 
 
+def test_openapi_documents_the_real_invitations_endpoints():
+    spec = _load_spec()
+
+    assert "post" in spec["paths"]["/organizations/{organization_id}/invitations"]
+    assert "get" in spec["paths"]["/organizations/{organization_id}/invitations"]
+    assert "delete" in spec["paths"]["/organizations/{organization_id}/invitations/{invitation_id}"]
+    assert "post" in spec["paths"]["/invitations/accept"]
+
+
 def test_openapi_file_has_exactly_one_components_block():
     """A second top-level `components:` key is valid YAML but silently
     clobbers the first (last key wins) - caught once already while
@@ -70,6 +79,8 @@ def test_openapi_schemas_referenced_by_new_endpoints_are_defined():
     assert "CreateOrganizationRequest" in schemas
     assert "OrganizationPublic" in schemas
     assert "MembershipPublic" in schemas
+    assert "CreateInvitationRequest" in schemas
+    assert "InvitationPublic" in schemas
 
 
 def test_openapi_json_endpoint_serves_the_same_spec(client):

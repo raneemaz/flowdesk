@@ -118,3 +118,43 @@ on the DB's `ON DELETE CASCADE` instead of SQLAlchemy loading every
 child row first; `cascade="all, delete-orphan"` is kept alongside it for
 explicit in-session manipulation (e.g. removing an item from
 `org.memberships`).
+
+### `invitations` (FD-016)
+
+Fields per spec Section 10.1's Invitation entity, plus `cancelled_at` (a
+judgment call - symmetric with `accepted_at` so cancellation doesn't
+need its own status enum column). `status` (`pending` / `accepted` /
+`cancelled` / `expired`) is a **derived property, never a stored
+column** - computed from `accepted_at`/`cancelled_at`/`expires_at` so it
+can never drift out of sync with the timestamps that actually define it.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `organization_id` | UUID | required, FK -> `organizations.id`, `ON DELETE CASCADE`, indexed |
+| `email` | varchar(320) | required, normalized to lowercase + trimmed, indexed. Not unique - a cancelled/expired invitation can be followed by a new one for the same address |
+| `role` | enum (`membership_role`) | **reuses** the enum type created by `memberships` (FD-012) - the migration explicitly passes `create_type=False` on this column so it neither tries to `CREATE TYPE` again (upgrade) nor drops a type `memberships` still depends on (downgrade); verified with a full downgrade/upgrade round-trip, same review step FD-008 established for enum-owning migrations |
+| `token_hash` | varchar(64) | required, unique. SHA-256 hex digest of the raw token - **not** Argon2id (that's for passwords, verified one guess at a time; a token lookup needs a deterministic digest to query by by directly - the raw token's 256 bits of randomness is what makes it unguessable, not a slow hash) |
+| `expires_at` | timestamptz | required; `INVITATION_EXPIRY_DAYS` (default 7) after creation |
+| `accepted_at` | timestamptz, nullable | set when the invitation is accepted |
+| `cancelled_at` | timestamptz, nullable | set when the invitation is cancelled - judgment call, see above |
+| `inviter_id` | UUID, nullable | FK -> `users.id`, `ON DELETE SET NULL` - an invitation is organization history and must outlive the inviter's own `User` row if that's ever deleted (no such endpoint exists yet, but the schema doesn't assume one never will) |
+| `created_at`, `updated_at` | timestamptz | |
+
+**No partial-unique "one pending invitation per (org, email)" constraint.**
+Enforced at the application level (check-then-insert in
+`app.invitations.service.create_invitation`) rather than a DB
+constraint, since "pending" depends on `expires_at > now()` - a static
+partial index can't express a time-dependent predicate. This is a
+documented, narrow race: two concurrent invite requests for the same
+email could both succeed, leaving a harmless duplicate pending
+invitation (whichever is accepted first succeeds normally; the other
+stays cancellable) rather than a security issue - unlike the
+email/slug-uniqueness races elsewhere in this project, which really do
+need to be fully race-closed.
+
+**Email delivery (`app/email/client.py`) is real SMTP**, not a vendor
+SDK - see `backend/README.md` and `docs/API.md`'s Authorization-adjacent
+Invitations section for the full rationale (Section 35 open decision
+#4) and why the raw token is never returned in an API response, only
+emailed.

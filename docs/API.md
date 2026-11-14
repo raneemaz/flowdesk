@@ -207,17 +207,80 @@ can't self-demote out of their own org either). Enforced by
 `can_assign_role()`, not yet wired to an endpoint (no membership-role-change
 endpoint is assigned to any task yet).
 
-**Not yet consumed by a real endpoint.** FD-015 is pure infrastructure
-- organization creation/listing (FD-013/FD-014) predate RBAC and aren't
+**First consumed by a real endpoint in FD-016** (invitations, below) -
+organization creation/listing (FD-013/FD-014) predate RBAC and aren't
 org-scoped by nature (creating a brand-new org, or listing the caller's
-own memberships). The first real consumers are later tasks that nest
-their routes under `/organizations/<organization_id>/...`: FD-016
-(employee invitations), FD-021 (departments), FD-026 (tasks), FD-035
-(customers), FD-042 (invoices), FD-047/FD-048 (activity logs/notifications).
-Each of those still needs to apply its own scope-based field/query
-filtering for `limited`/`own`/`assigned` - the matrix above is the
-contract, not the implementation, for the resources that don't exist
-yet.
+own memberships). Later tasks nesting routes under
+`/organizations/<organization_id>/...` - FD-021 (departments), FD-026
+(tasks), FD-035 (customers), FD-042 (invoices), FD-047/FD-048 (activity
+logs/notifications) - still need to apply their own scope-based
+field/query filtering for `limited`/`own`/`assigned`; the matrix above
+is the contract, not the implementation, for the resources that don't
+exist yet.
+
+## Invitations (FD-016)
+
+Centralized in `backend/app/invitations/`, gated by
+`require_permission(Permission.MEMBERSHIP_MANAGE)` from the
+Authorization section above. Resolves Section 35 open decision #4
+(delivery provider/templates): real SMTP email delivery, chosen over a
+vendor-specific SDK so development and production share the exact same
+code path (`backend/app/email/client.py`) - only `SMTP_*` env vars
+differ. **Not reachable from a real mail server in this dev
+environment** (same documented gap as Docker/Redis) - `SMTP_HOST` is
+unset here, so sends are logged instead; `ProductionConfig` refuses to
+start without it.
+
+**The raw invitation token is never returned in an API response** -
+only emailed. Once real delivery exists, the inviter (who is already
+authorized to send the invite) gaining the raw token too would widen
+the token's exposure (logs, browser history, XSS) beyond the one
+channel - the invitee's inbox - that's supposed to be the only way to
+obtain it. If delivery fails, the admin's recourse is to cancel and
+re-invite (no separate "resend" endpoint exists - out of this task's
+scope).
+
+- `POST /organizations/{organization_id}/invitations` - create and
+  email an invitation. Requires `MEMBERSHIP_MANAGE` (Owner: any role;
+  Manager: only Employee/Accountant/CustomerSupport). `422` on an
+  unknown role or extra fields; `409 ALREADY_A_MEMBER` if the email
+  already has an active membership in this org; `409
+  INVITATION_ALREADY_PENDING` if an unexpired, unaccepted,
+  uncancelled invitation already exists for that email (a narrow,
+  documented check-then-insert race - see `docs/DATABASE.md`). Response
+  includes `"email_delivery": "sent" | "failed"` - a failed send never
+  rolls back the invitation row (Section 14's "a failed [external] call
+  must never corrupt business data," applied to email instead of the AI
+  provider it was written for).
+- `GET /organizations/{organization_id}/invitations` - list every
+  invitation for the org (any status - history isn't hidden, same
+  convention as membership listing). Requires `MEMBERSHIP_MANAGE`.
+- `DELETE /organizations/{organization_id}/invitations/{invitation_id}`
+  - cancel a pending invitation. `404` if it doesn't exist or belongs to
+  a different organization (object-level check, never distinguishable
+  from "doesn't exist"); `403` if the caller's `MEMBERSHIP_MANAGE` scope
+  doesn't reach the invitation's role (a Manager can't cancel an
+  Owner/Manager-role invite, same restriction as creating one); `409
+  INVITATION_NOT_PENDING` if it's already accepted/cancelled/expired.
+- `POST /invitations/accept` - accept an invitation by its raw token.
+  **Not** nested under `/organizations/{organization_id}/...` and
+  **not** gated by `require_permission` - the invitee isn't an org
+  member yet, so there's nothing for that gate to check; only
+  `login_required` + `csrf_protect` apply. The invitee must already
+  have an account (register, then log in, same as any other authenticated
+  action) with the exact email the invitation targeted:
+  - `404 INVITATION_NOT_FOUND` - token doesn't match any invitation.
+  - `409 INVITATION_CANCELLED` / `409 INVITATION_ALREADY_ACCEPTED` / `409
+    INVITATION_EXPIRED` - token is real but no longer usable. Unlike
+    membership lookups, these are intentionally specific (not a generic
+    404) - correctly presenting the one true random 256-bit token
+    already proves legitimate possession of it, so there's no
+    enumeration risk in saying *why* it didn't work.
+  - `403 INVITATION_EMAIL_MISMATCH` - authenticated as the wrong person.
+  - `409 ALREADY_A_MEMBER` - caller is already an active member of that
+    org.
+  - On success: creates the `Membership` (role = the invited role,
+    status = active) and marks the invitation accepted, atomically.
 
 ## Current endpoints
 
@@ -229,6 +292,10 @@ yet.
 | GET | `/api/v1/auth/me` | Current user's profile (no memberships yet — see below) | FD-011 |
 | POST | `/api/v1/organizations` | Create a business workspace, creator becomes Owner | FD-013 |
 | GET | `/api/v1/organizations` | List the caller's own organization memberships | FD-014 |
+| POST | `/api/v1/organizations/{organization_id}/invitations` | Create and email an invitation | FD-016 |
+| GET | `/api/v1/organizations/{organization_id}/invitations` | List every invitation for the org | FD-016 |
+| DELETE | `/api/v1/organizations/{organization_id}/invitations/{invitation_id}` | Cancel a pending invitation | FD-016 |
+| POST | `/api/v1/invitations/accept` | Accept an invitation by its raw token | FD-016 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |

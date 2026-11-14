@@ -70,6 +70,31 @@ def check_scope_allows(
     raise ValueError(f"Unhandled PermissionScope: {scope!r}")  # pragma: no cover
 
 
+# The set of roles a Manager's LIMITED MEMBERSHIP_MANAGE scope reaches -
+# shared between can_assign_role (changing an existing member's role)
+# and can_invite_with_role (FD-016: inviting a new member with a role).
+_MANAGER_ASSIGNABLE_ROLES = {MembershipRole.EMPLOYEE, MembershipRole.ACCOUNTANT, MembershipRole.CUSTOMER_SUPPORT}
+
+
+def can_invite_with_role(actor_membership: Membership, role: MembershipRole) -> bool:
+    """Whether `actor_membership`'s role may send an invitation for
+    `role` (FD-016). Governed by the same MEMBERSHIP_MANAGE scope as
+    can_assign_role, applied to the role being offered rather than an
+    existing target membership:
+    - FULL (Owner): may invite any role.
+    - LIMITED (Manager, "as granted"): may only invite
+      Employee/Accountant/CustomerSupport - can never invite a new
+      Owner or Manager.
+    - NONE: may never invite anyone.
+    """
+    scope = ROLE_PERMISSIONS[actor_membership.role][Permission.MEMBERSHIP_MANAGE]
+    if scope == PermissionScope.FULL:
+        return True
+    if scope == PermissionScope.LIMITED:
+        return role in _MANAGER_ASSIGNABLE_ROLES
+    return False
+
+
 def can_assign_role(actor_membership: Membership, target_membership: Membership, new_role: MembershipRole) -> bool:
     """Section 13's mandatory security scenario ("Employee tries to
     change their own role -> 403") generalizes to every role here: no
@@ -106,6 +131,5 @@ def can_assign_role(actor_membership: Membership, target_membership: Membership,
     if scope == PermissionScope.FULL:
         return True
     if scope == PermissionScope.LIMITED:
-        restricted_roles = {MembershipRole.EMPLOYEE, MembershipRole.ACCOUNTANT, MembershipRole.CUSTOMER_SUPPORT}
-        return target_membership.role in restricted_roles and new_role in restricted_roles
+        return target_membership.role in _MANAGER_ASSIGNABLE_ROLES and new_role in _MANAGER_ASSIGNABLE_ROLES
     return False

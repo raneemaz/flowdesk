@@ -9,6 +9,7 @@ from app.docs.routes import build_swagger_ui_blueprint, docs_bp
 from app.errors import register_error_handlers
 from app.extensions import db, migrate, sess
 from app.health.routes import health_bp
+from app.invitations.routes import invitations_bp
 from app.organizations.routes import organizations_bp
 
 # Importing app.models registers every model's table on db.metadata, so
@@ -30,6 +31,8 @@ def create_app(config_name=None):
         raise RuntimeError("FLASK_SECRET_KEY must be set in the environment for production.")
     if config_name == "production" and not app.config["SQLALCHEMY_DATABASE_URI"]:
         raise RuntimeError("DATABASE_URL must be set in the environment for production.")
+    if config_name == "production" and not app.config["SMTP_HOST"]:
+        raise RuntimeError("SMTP_HOST must be set in the environment for production (invitation emails).")
 
     db.init_app(app)
     migrate.init_app(app, db)
@@ -44,6 +47,7 @@ def create_app(config_name=None):
 def register_blueprints(app):
     app.register_blueprint(auth_bp, url_prefix=API_PREFIX)
     app.register_blueprint(organizations_bp, url_prefix=API_PREFIX)
+    app.register_blueprint(invitations_bp, url_prefix=API_PREFIX)
     app.register_blueprint(health_bp, url_prefix=API_PREFIX)
     app.register_blueprint(docs_bp, url_prefix=API_PREFIX)
     app.register_blueprint(build_swagger_ui_blueprint())

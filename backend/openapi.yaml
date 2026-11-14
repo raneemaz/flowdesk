@@ -16,6 +16,8 @@ tags:
     description: Account registration and authentication
   - name: Organizations
     description: Business workspaces
+  - name: Invitations
+    description: Inviting new members into an organization
 
 paths:
   /auth/login:
@@ -289,6 +291,262 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/invitations:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Invitations]
+      summary: Create and email an invitation
+      description: >
+        Requires MEMBERSHIP_MANAGE (see the Authorization section of
+        docs/API.md): Owner may invite any role; Manager only
+        Employee/Accountant/CustomerSupport. Sends a real email via SMTP
+        (backend/app/email/client.py) - the raw token is never included
+        in this response, only in that email.
+      operationId: postOrganizationInvitations
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInvitationRequest"
+      responses:
+        "201":
+          description: Invitation created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: "#/components/schemas/InvitationPublic"
+                          - type: object
+                            required: [email_delivery]
+                            properties:
+                              email_delivery:
+                                type: string
+                                enum: [sent, failed]
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or the caller's role cannot invite this role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Email already an active member, or already has a pending invitation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                alreadyPending:
+                  value:
+                    success: false
+                    error:
+                      code: INVITATION_ALREADY_PENDING
+                      message: An invitation is already pending for this email.
+                      details: {}
+        "422":
+          description: Validation failed (unknown role, extra fields)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    get:
+      tags: [Invitations]
+      summary: List every invitation for the organization
+      description: Any status (pending/accepted/cancelled/expired) - history isn't hidden. Requires MEMBERSHIP_MANAGE.
+      operationId: getOrganizationInvitations
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The organization's invitations
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/InvitationPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without MEMBERSHIP_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/invitations/{invitation_id}:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: invitation_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [Invitations]
+      summary: Cancel a pending invitation
+      description: >
+        A Manager can only cancel an invitation for a role their
+        MEMBERSHIP_MANAGE scope reaches (same restriction as creating
+        one) - never an Owner/Manager-role invitation.
+      operationId: deleteOrganizationInvitation
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Invitation cancelled
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/InvitationPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or role permission does not reach this invitation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Invitation does not exist, or belongs to a different organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Invitation is already accepted/cancelled/expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /invitations/accept:
+    post:
+      tags: [Invitations]
+      summary: Accept an invitation by its raw token
+      description: >
+        Not nested under an organization and not gated by
+        require_permission - the invitee isn't a member yet. Only
+        login_required + csrf_protect apply; the authenticated caller's
+        own email must match the invitation's email exactly.
+      operationId: postInvitationsAccept
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token]
+              properties:
+                token:
+                  type: string
+      responses:
+        "200":
+          description: Invitation accepted - a new active Membership was created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MembershipPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or the invitation was issued to a different email (INVITATION_EMAIL_MISMATCH)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Token does not match any invitation (INVITATION_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Invitation no longer usable, or caller is already a member
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                expired:
+                  value:
+                    success: false
+                    error:
+                      code: INVITATION_EXPIRED
+                      message: This invitation can no longer be accepted.
+                      details: {}
+        "422":
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /health:
     get:
       tags: [Health]
@@ -429,6 +687,55 @@ components:
           type: string
           enum: [active, inactive, suspended]
         joined_at:
+          type: string
+          format: date-time
+
+    CreateInvitationRequest:
+      type: object
+      additionalProperties: false
+      required: [email, role]
+      properties:
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [owner, manager, employee, accountant, customer_support]
+
+    InvitationPublic:
+      type: object
+      description: Never includes the raw token or its hash - see docs/API.md's Invitations section.
+      required: [id, email, role, status, expires_at, accepted_at, cancelled_at, inviter_id, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [owner, manager, employee, accountant, customer_support]
+        status:
+          type: string
+          enum: [pending, accepted, cancelled, expired]
+          description: Derived, never stored directly.
+        expires_at:
+          type: string
+          format: date-time
+        accepted_at:
+          type: string
+          format: date-time
+          nullable: true
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
+        inviter_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
           type: string
           format: date-time
 

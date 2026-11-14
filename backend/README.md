@@ -6,14 +6,14 @@ tasks, etc.) are added incrementally per the backlog in
 the application skeleton, database connection, migration pipeline, API
 documentation infra, auth (model, registration, login/logout,
 current-user), organizations (model, creation, listing caller's own
-memberships), and centralized RBAC (permission definitions, decorator,
-object-level membership checks) exist so far (FD-002, FD-004, FD-005,
-FD-007, FD-008, FD-009, FD-010, FD-011, FD-012, FD-013, FD-014, FD-015).
-No GET/PATCH for a single organization, and no "list members of an
-org" endpoint - neither is part of any assigned task yet (see
-docs/API.md). RBAC isn't consumed by a real endpoint yet either - it's
-infrastructure for the org-scoped resources later tasks build (see
-docs/API.md's Authorization section).
+memberships), centralized RBAC (permission definitions, decorator,
+object-level membership checks), and employee invitations (secure
+expiring tokens, real SMTP email delivery, acceptance, cancellation)
+exist so far (FD-002, FD-004, FD-005, FD-007, FD-008, FD-009, FD-010,
+FD-011, FD-012, FD-013, FD-014, FD-015, FD-016). No GET/PATCH for a
+single organization, and no "list members of an org" endpoint - neither
+is part of any assigned task yet (see docs/API.md). FD-016 is RBAC's
+first real consumer; see docs/API.md's Invitations section.
 
 ## Structure
 
@@ -36,8 +36,13 @@ backend/
                               Owner Membership; list_user_memberships), routes.py:
                               POST /api/v1/organizations, GET /organizations
     authz/                   permissions.py (Permission, PermissionScope, ROLE_PERMISSIONS matrix),
-                              service.py (get_active_membership_or_404, check_scope_allows, can_assign_role),
-                              decorators.py (require_permission) - see docs/API.md's Authorization section
+                              service.py (get_active_membership_or_404, check_scope_allows, can_assign_role,
+                              can_invite_with_role), decorators.py (require_permission) - see docs/API.md's
+                              Authorization section
+    invitations/             schemas.py, service.py (create_invitation, list_invitations, cancel_invitation,
+                              accept_invitation), routes.py: POST/GET /organizations/{id}/invitations,
+                              DELETE .../invitations/{id}, POST /invitations/accept
+    email/                   client.py (send_email - real SMTP, dev-logs when SMTP_HOST is unset)
     health/              GET /api/v1/health (liveness + DB connectivity status)
     docs/                 GET /api/v1/openapi.json, GET /api/v1/docs (Swagger UI)
   migrations/            Alembic migration environment (flask db <cmd>)
@@ -86,7 +91,13 @@ catch everything (e.g. column renames), and in FD-008 it generated a
 `downgrade()` that doesn't clean up the Postgres native enum type it
 created, which breaks a later re-upgrade (`type "..." already exists`).
 Always check a generated enum-dropping migration's `downgrade()` for
-this.
+this. The reverse gotcha showed up in FD-016: a *second* table (`invitations`)
+reusing an already-existing native enum type (`membership_role`, owned
+by `memberships`) makes autogenerate emit a plain `sa.Enum(...)` that
+tries to `CREATE TYPE` it again on upgrade - fails with `type "..."
+already exists`. Fixed by hand with `postgresql.ENUM(..., create_type=False)`
+on that column; verified with a full downgrade/upgrade round-trip (this
+also means its `downgrade()` correctly leaves the shared type alone).
 
 ## Sessions (FD-010)
 
@@ -116,6 +127,25 @@ the dev server without Redis running and got a clean `500
 INTERNAL_SERVER_ERROR` envelope (not a leak, not a hang) - see the WSGI
 safety net below. Once `docker compose up` is actually run (FD-006),
 this becomes fully verifiable.
+
+## Invitation email delivery (FD-016)
+
+Real SMTP (`app/email/client.py`), resolving Section 35 open decision
+#4 - chosen over a vendor SDK so development and production share the
+exact same code path; only the `SMTP_*` env vars differ. Relevant env
+vars (`.env.example`): `SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`SMTP_USE_TLS`,
+`EMAIL_FROM_ADDRESS`, `INVITATION_EXPIRY_DAYS` (default 7). The invite
+link's base URL reuses `FRONTEND_ORIGIN` rather than adding a second,
+near-duplicate "where's the frontend" variable.
+
+**No real SMTP server in this dev environment** (same gap as
+Docker/Redis elsewhere in this project). `SMTP_HOST` empty means
+`send_email` logs the message instead of opening a socket - this is
+also what `TestingConfig` forces regardless of a real value in `.env`,
+so the test suite never attempts a network send. `ProductionConfig`
+refuses to start without `SMTP_HOST` set (`app/__init__.py`). A failed
+send never rolls back the invitation row - see `docs/API.md`'s
+Invitations section.
 
 ## Error handling note (found during FD-010)
 

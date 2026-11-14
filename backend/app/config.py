@@ -55,6 +55,25 @@ class Config:
         # the default to true per NFR-002 (all production traffic is HTTPS).
         self.SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
 
+        # Invitation email delivery (FD-016), per Section 35 open
+        # decision #4: SMTP rather than a vendor SDK, so dev and
+        # production run the exact same code path (app/email/client.py)
+        # - only these env vars change between them. SMTP_HOST empty is
+        # the dev-only "log instead of send" fallback; ProductionConfig
+        # requires it to be set (checked at startup in app/__init__.py).
+        self.SMTP_HOST = os.environ.get("SMTP_HOST", "")
+        self.SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+        self.SMTP_USERNAME = os.environ.get("SMTP_USERNAME", "")
+        self.SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+        self.SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() == "true"
+        self.EMAIL_FROM_ADDRESS = os.environ.get("EMAIL_FROM_ADDRESS", "no-reply@flowdesk.local")
+        # Reuses FRONTEND_ORIGIN (already defined for CORS) to build the
+        # link inside an invitation email, rather than adding a second,
+        # near-duplicate "where's the frontend" env var. The frontend
+        # route itself doesn't exist yet (FD-017+).
+        self.FRONTEND_URL = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
+        self.INVITATION_EXPIRY_DAYS = int(os.environ.get("INVITATION_EXPIRY_DAYS", "7"))
+
 
 class DevelopmentConfig(Config):
     def __init__(self):
@@ -78,6 +97,12 @@ class TestingConfig(Config):
         import fakeredis
 
         self.SESSION_REDIS = fakeredis.FakeStrictRedis()
+
+        # Force the dev-log fallback regardless of a real SMTP_HOST in
+        # .env (set for local development use) - tests must never
+        # attempt a real network send. app.email.client.send_email logs
+        # instead of connecting when SMTP_HOST is empty.
+        self.SMTP_HOST = ""
 
 
 class ProductionConfig(Config):
