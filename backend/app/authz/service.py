@@ -133,3 +133,34 @@ def can_assign_role(actor_membership: Membership, target_membership: Membership,
     if scope == PermissionScope.LIMITED:
         return target_membership.role in _MANAGER_ASSIGNABLE_ROLES and new_role in _MANAGER_ASSIGNABLE_ROLES
     return False
+
+
+def can_manage_employee_profile(actor_membership: Membership, target_membership: Membership) -> bool:
+    """FD-023: whether `actor_membership` may edit `target_membership`'s
+    EmployeeProfile (job_title/department_id/manager_membership_id/
+    status). Governed by EMPLOYEE_MANAGE's scope for the actor's role:
+    - FULL (Owner): may edit any member's profile, including their own
+      - unlike a role change, editing a job title/department/manager/
+        status doesn't grant any extra system access, so there's no
+        self-escalation risk to guard against here the way
+        can_assign_role does.
+    - LIMITED (Manager): may only edit a target whose role is Employee/
+      Accountant/CustomerSupport - same reach as MEMBERSHIP_MANAGE's
+      LIMITED scope (_MANAGER_ASSIGNABLE_ROLES). A Manager's own role is
+      never in that set, so this also rules out a Manager editing their
+      own profile, or another Manager's, without a separate check.
+    - NONE: may never edit anyone's profile.
+
+    Same cross-tenant defense as can_assign_role: a target from a
+    different organization is rejected outright, never trusted to have
+    already been matched by the caller.
+    """
+    if target_membership.organization_id != actor_membership.organization_id:
+        return False
+
+    scope = ROLE_PERMISSIONS[actor_membership.role][Permission.EMPLOYEE_MANAGE]
+    if scope == PermissionScope.FULL:
+        return True
+    if scope == PermissionScope.LIMITED:
+        return target_membership.role in _MANAGER_ASSIGNABLE_ROLES
+    return False

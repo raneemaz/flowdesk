@@ -216,9 +216,9 @@ Fields per spec Section 10.1's EmployeeProfile entity, plus
 department, manager") names a distinct per-employee "reports to"
 reference, separate from (though often equal to) their department's
 own `manager_membership_id`; FR-006 lists "manager" as its own
-employee-directory column alongside "department". Model + migration
-only so far - the directory/profile APIs are FD-022/FD-023, separate
-future tasks.
+employee-directory column alongside "department". The directory list
+API is FD-022; the single-record view/edit API (the first write path
+for this table) is FD-023 - both documented in `docs/API.md`.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -266,11 +266,16 @@ application logic.
 to this profile's own organization** - same reasoning, and same
 accepted gap, as `Department.manager_membership_id` (FD-019): a
 composite FK here would need `ON DELETE SET NULL`, which conflicts
-with `organization_id` staying `NOT NULL`. Deferred to FD-022/FD-023's
-future service layer (the same pattern `app/authz/service.py`'s
-`can_assign_role` already uses) -
+with `organization_id` staying `NOT NULL`. Closed at the service layer
+by FD-022 (read path: `_resolve_manager_names`/`_resolve_departments`
+re-filter by `organization_id` before ever displaying a name) and
+FD-023 (write path: `_validate_department`/`_validate_manager_membership`
+reject a department/membership that doesn't resolve inside this exact
+organization) - the same pattern `app/authz/service.py`'s
+`can_assign_role` already uses -
 `test_employee_profile_model_does_not_itself_block_a_manager_from_a_different_organization`
-documents and locks in that this is intentional, not an oversight.
+documents and locks in that the *model* not enforcing this is
+intentional, not an oversight, now that the service layer does.
 
 **Cascade behavior:** deleting a `Membership` **deletes** its
 `EmployeeProfile` (`CASCADE`, not `SET NULL` - a profile has no

@@ -851,6 +851,113 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/employees/{membership_id}:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: membership_id
+        in: path
+        required: true
+        description: The target employee's Membership id (not the caller's own).
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Employees]
+      summary: View one employee's profile
+      description: >
+        Requires EMPLOYEE_DIRECTORY_VIEW, same as the list endpoint
+        (never none). Returns the full EmployeePublic shape if the
+        caller has full scope or is viewing their own profile,
+        otherwise the limited shape (see docs/API.md's Employee profile
+        & status management section).
+      operationId: getOrganizationEmployee
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The employee's profile (full or limited shape, see above)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/EmployeePublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or the target membership is missing/cross-organization/inactive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      tags: [Employees]
+      summary: Update (and implicitly create) an employee's profile/status
+      description: >
+        Requires EMPLOYEE_MANAGE (full for Owner, limited for Manager -
+        restricted to Employee/Accountant/CustomerSupport targets by an
+        object-level check, none for everyone else). Upserts the
+        EmployeeProfile row.
+      operationId: patchOrganizationEmployee
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateEmployeeProfileRequest"
+      responses:
+        "200":
+          description: The updated (or newly created) EmployeeProfile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/EmployeeProfilePublic"
+        "400":
+          description: Request body is not valid JSON
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller's EMPLOYEE_MANAGE scope doesn't reach this target
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or the target membership is missing/cross-organization/inactive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown field, invalid department_id/manager_membership_id, or null status)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /health:
     get:
       tags: [Health]
@@ -1106,6 +1213,45 @@ components:
           type: string
           format: date-time
 
+    EmployeeProfilePublic:
+      type: object
+      description: >
+        The PATCH /employees/{membership_id} response shape - the raw
+        EmployeeProfile row (FD-023), confirming what was written.
+        Distinct from EmployeePublic (the GET/list shape), which
+        resolves department_id/manager_membership_id into friendly
+        {id, name} objects for display; this one returns the stored
+        FKs as-is, same convention as DepartmentPublic's own PATCH
+        response.
+      required: [id, organization_id, membership_id, department_id, manager_membership_id, job_title, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        membership_id:
+          type: string
+          format: uuid
+        department_id:
+          type: string
+          format: uuid
+          nullable: true
+        manager_membership_id:
+          type: string
+          format: uuid
+          nullable: true
+        job_title:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, inactive, suspended]
+        created_at:
+          type: string
+          format: date-time
+
     EmployeePublic:
       type: object
       description: >
@@ -1159,18 +1305,32 @@ components:
           type: string
           format: date-time
 
-    PaginationMeta:
+    UpdateEmployeeProfileRequest:
       type: object
-      required: [page, per_page, total, total_pages]
+      description: >
+        Partial update - every field is optional to include. Upserts the
+        EmployeeProfile row if one doesn't exist yet for this membership
+        (see docs/API.md's Employee profile & status management
+        section). job_title/department_id/manager_membership_id accept
+        an explicit null to clear them; status does not (422 if sent as
+        null).
+      additionalProperties: false
       properties:
-        page:
-          type: integer
-        per_page:
-          type: integer
-        total:
-          type: integer
-        total_pages:
-          type: integer
+        job_title:
+          type: string
+          maxLength: 255
+          nullable: true
+        department_id:
+          type: string
+          format: uuid
+          nullable: true
+        manager_membership_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          enum: [active, inactive, suspended]
 
     LoginRequest:
       type: object

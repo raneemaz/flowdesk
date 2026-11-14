@@ -27,8 +27,18 @@ import uuid
 from sqlalchemy.orm import joinedload
 
 from app.authz.permissions import PermissionScope
+from app.errors import APIError
 from app.extensions import db
-from app.models import Department, EmployeeProfile, EmployeeStatus, Membership, MembershipRole, MembershipStatus, User
+from app.models import (
+    Department,
+    DepartmentStatus,
+    EmployeeProfile,
+    EmployeeStatus,
+    Membership,
+    MembershipRole,
+    MembershipStatus,
+    User,
+)
 
 
 def _base_query(
@@ -170,3 +180,133 @@ def list_employees(
 
     employees = [_serialize(row, scope, manager_names, departments) for row in rows]
     return employees, total
+
+
+def get_target_membership_or_404(organization_id: uuid.UUID, membership_id: uuid.UUID) -> Membership:
+    """FD-023: the single place that resolves a *target* employee's
+    Membership for both GET (single-profile view) and PATCH (profile/
+    status edit). Same 404 convention as app.authz.service's
+    get_active_membership_or_404 - missing, cross-organization, and
+    inactive are all indistinguishable, never a 403 that would confirm
+    the row exists under a different organization."""
+    membership = (
+        db.session.query(Membership)
+        .options(joinedload(Membership.user), joinedload(Membership.employee_profile))
+        .filter(
+            Membership.id == membership_id,
+            Membership.organization_id == organization_id,
+            Membership.status == MembershipStatus.ACTIVE,
+        )
+        .first()
+    )
+    if membership is None:
+        raise APIError("Not found.", status_code=404, code="NOT_FOUND")
+    return membership
+
+
+def get_employee(organization_id: uuid.UUID, membership: Membership, *, scope: PermissionScope) -> dict:
+    """Single-record counterpart to list_employees - reuses the exact
+    same cross-org-safe _resolve_manager_names/_resolve_departments
+    lookups and _serialize scope-filtering, so this path can't drift
+    from the directory's own leak prevention (FD-022's
+    tenant-security-reviewer finding applies here too)."""
+    profile = membership.employee_profile
+    manager_ids = {profile.manager_membership_id} if profile and profile.manager_membership_id else set()
+    department_ids = {profile.department_id} if profile and profile.department_id else set()
+    manager_names = _resolve_manager_names(organization_id, manager_ids)
+    departments = _resolve_departments(organization_id, department_ids)
+    return _serialize(membership, scope, manager_names, departments)
+
+
+def _validate_department(organization_id: uuid.UUID, department_id: uuid.UUID | None) -> None:
+    """department_id, if given, must resolve to a real, *active*
+    Department in this organization - mirrors
+    app.departments.service._validate_manager_membership's pattern
+    (same deferred-to-the-service-layer gap EmployeeProfile.department_id's
+    own docstring names). Requiring `active` (not just "exists in this
+    org") blocks a *new* assignment into a deactivated department,
+    though deactivating a department afterwards still never un-assigns
+    the employees already pointed at it - FR-009/FD-021's "deactivation
+    never hides history" is about the past, not about accepting new
+    assignments into a department that's no longer in use."""
+    if department_id is None:
+        return
+
+    department = db.session.query(Department).filter_by(id=department_id, organization_id=organization_id).first()
+    if department is None or department.status != DepartmentStatus.ACTIVE:
+        raise APIError(
+            "department_id must reference an active department in this organization.",
+            status_code=422,
+            code="INVALID_DEPARTMENT",
+            details={"department_id": "must reference an active department in this organization"},
+        )
+
+
+def _validate_manager_membership(
+    organization_id: uuid.UUID, manager_membership_id: uuid.UUID | None, *, target_membership_id: uuid.UUID
+) -> None:
+    """manager_membership_id, if given, must resolve to a real, active
+    Membership in this organization, and can't be the employee's own
+    membership_id - an employee can't be their own manager."""
+    if manager_membership_id is None:
+        return
+
+    if manager_membership_id == target_membership_id:
+        raise APIError(
+            "An employee cannot be their own manager.",
+            status_code=422,
+            code="INVALID_MANAGER_MEMBERSHIP",
+            details={"manager_membership_id": "cannot be the employee's own membership_id"},
+        )
+
+    membership = (
+        db.session.query(Membership).filter_by(id=manager_membership_id, organization_id=organization_id).first()
+    )
+    if membership is None or membership.status != MembershipStatus.ACTIVE:
+        raise APIError(
+            "manager_membership_id must reference an active membership in this organization.",
+            status_code=422,
+            code="INVALID_MANAGER_MEMBERSHIP",
+            details={"manager_membership_id": "must reference an active membership in this organization"},
+        )
+
+
+def _get_or_create_profile(organization_id: uuid.UUID, membership_id: uuid.UUID) -> EmployeeProfile:
+    """Nothing else creates an EmployeeProfile row yet (FD-022's own
+    module docstring) - this PATCH endpoint is that first write path, so
+    it upserts rather than requiring a separate POST a caller would have
+    to remember to call first."""
+    profile = (
+        db.session.query(EmployeeProfile)
+        .filter_by(organization_id=organization_id, membership_id=membership_id)
+        .first()
+    )
+    if profile is None:
+        profile = EmployeeProfile(organization_id=organization_id, membership_id=membership_id)
+        db.session.add(profile)
+    return profile
+
+
+def update_employee_profile(organization_id: uuid.UUID, membership_id: uuid.UUID, fields: dict) -> EmployeeProfile:
+    """`fields` is the caller's `UpdateEmployeeProfileRequest.model_dump(exclude_unset=True)`
+    - only keys actually present in the request body are applied."""
+    if "department_id" in fields:
+        _validate_department(organization_id, fields["department_id"])
+    if "manager_membership_id" in fields:
+        _validate_manager_membership(
+            organization_id, fields["manager_membership_id"], target_membership_id=membership_id
+        )
+
+    profile = _get_or_create_profile(organization_id, membership_id)
+
+    if "job_title" in fields:
+        profile.job_title = fields["job_title"]
+    if "department_id" in fields:
+        profile.department_id = fields["department_id"]
+    if "manager_membership_id" in fields:
+        profile.manager_membership_id = fields["manager_membership_id"]
+    if "status" in fields:
+        profile.status = fields["status"]
+
+    db.session.commit()
+    return profile

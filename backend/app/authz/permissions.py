@@ -27,6 +27,16 @@ class Permission(str, enum.Enum):
     ORGANIZATION_SETTINGS_MANAGE = "organization_settings_manage"
     MEMBERSHIP_MANAGE = "membership_manage"
     EMPLOYEE_DIRECTORY_VIEW = "employee_directory_view"
+    # FD-023 addition, not one of the original 12 Section 7.2 rows: the
+    # baseline matrix has no dedicated "manage an employee's profile/
+    # status" capability distinct from MEMBERSHIP_MANAGE (role/invitation)
+    # and EMPLOYEE_DIRECTORY_VIEW (read-only). Resolved with the user at
+    # FD-023 time, consistent with "Manage departments"'s own
+    # Owner/Manager-only shape, but reusing MEMBERSHIP_MANAGE's existing
+    # LIMITED reach restriction (see can_manage_employee_profile) since
+    # editing someone's job title/department/manager/status is an action
+    # over a *person*, not operational data like a department record.
+    EMPLOYEE_MANAGE = "employee_manage"
     DEPARTMENT_MANAGE = "department_manage"
     TASK_CREATE_ASSIGN = "task_create_assign"
     TASK_VIEW_UPDATE = "task_view_update"
@@ -63,6 +73,7 @@ ROLE_PERMISSIONS: dict[MembershipRole, dict[Permission, PermissionScope]] = {
         Permission.ORGANIZATION_SETTINGS_MANAGE: PermissionScope.FULL,
         Permission.MEMBERSHIP_MANAGE: PermissionScope.FULL,
         Permission.EMPLOYEE_DIRECTORY_VIEW: PermissionScope.FULL,
+        Permission.EMPLOYEE_MANAGE: PermissionScope.FULL,
         Permission.DEPARTMENT_MANAGE: PermissionScope.FULL,
         Permission.TASK_CREATE_ASSIGN: PermissionScope.FULL,
         Permission.TASK_VIEW_UPDATE: PermissionScope.FULL,
@@ -90,6 +101,12 @@ ROLE_PERMISSIONS: dict[MembershipRole, dict[Permission, PermissionScope]] = {
         # their own role -> 403"), generalized here to every role.
         Permission.MEMBERSHIP_MANAGE: PermissionScope.LIMITED,
         Permission.EMPLOYEE_DIRECTORY_VIEW: PermissionScope.FULL,
+        # LIMITED: same reach as MEMBERSHIP_MANAGE above - may edit the
+        # profile/status of a target whose role is Employee/Accountant/
+        # CustomerSupport only. A Manager's own role is never in that
+        # set, so this also rules out self-editing without needing a
+        # separate check - see can_manage_employee_profile.
+        Permission.EMPLOYEE_MANAGE: PermissionScope.LIMITED,
         Permission.DEPARTMENT_MANAGE: PermissionScope.FULL,
         Permission.TASK_CREATE_ASSIGN: PermissionScope.FULL,
         Permission.TASK_VIEW_UPDATE: PermissionScope.FULL,
@@ -107,6 +124,12 @@ ROLE_PERMISSIONS: dict[MembershipRole, dict[Permission, PermissionScope]] = {
         # another employee's email/phone/other contact details (that's
         # HR-adjacent data reserved for Owner/Manager).
         Permission.EMPLOYEE_DIRECTORY_VIEW: PermissionScope.LIMITED,
+        # NONE: an employee may view their own profile (EMPLOYEE_DIRECTORY_VIEW's
+        # self-view override - app/employees/routes.py) but never edit
+        # job_title/department/manager/status, their own or anyone
+        # else's - those are Owner/Manager-assigned administrative
+        # fields, not self-service ones.
+        Permission.EMPLOYEE_MANAGE: PermissionScope.NONE,
         Permission.DEPARTMENT_MANAGE: PermissionScope.NONE,
         # Resolves Section 35 open decision #8: employees may NOT create
         # or assign tasks in V1, only act on tasks already assigned to
@@ -132,6 +155,7 @@ ROLE_PERMISSIONS: dict[MembershipRole, dict[Permission, PermissionScope]] = {
         Permission.ORGANIZATION_SETTINGS_MANAGE: PermissionScope.NONE,
         Permission.MEMBERSHIP_MANAGE: PermissionScope.NONE,
         Permission.EMPLOYEE_DIRECTORY_VIEW: PermissionScope.LIMITED,
+        Permission.EMPLOYEE_MANAGE: PermissionScope.NONE,
         Permission.DEPARTMENT_MANAGE: PermissionScope.NONE,
         Permission.TASK_CREATE_ASSIGN: PermissionScope.NONE,
         Permission.TASK_VIEW_UPDATE: PermissionScope.ASSIGNED,
@@ -150,6 +174,7 @@ ROLE_PERMISSIONS: dict[MembershipRole, dict[Permission, PermissionScope]] = {
         Permission.ORGANIZATION_SETTINGS_MANAGE: PermissionScope.NONE,
         Permission.MEMBERSHIP_MANAGE: PermissionScope.NONE,
         Permission.EMPLOYEE_DIRECTORY_VIEW: PermissionScope.LIMITED,
+        Permission.EMPLOYEE_MANAGE: PermissionScope.NONE,
         Permission.DEPARTMENT_MANAGE: PermissionScope.NONE,
         Permission.TASK_CREATE_ASSIGN: PermissionScope.NONE,
         Permission.TASK_VIEW_UPDATE: PermissionScope.ASSIGNED,

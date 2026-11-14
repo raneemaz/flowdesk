@@ -79,3 +79,14 @@ def test_employee_directory_view_is_full_for_owner_and_manager_limited_for_every
     assert ROLE_PERMISSIONS[MembershipRole.MANAGER][Permission.EMPLOYEE_DIRECTORY_VIEW] == PermissionScope.FULL
     for role in (MembershipRole.EMPLOYEE, MembershipRole.ACCOUNTANT, MembershipRole.CUSTOMER_SUPPORT):
         assert ROLE_PERMISSIONS[role][Permission.EMPLOYEE_DIRECTORY_VIEW] == PermissionScope.LIMITED
+
+
+def test_employee_manage_is_full_for_owner_limited_for_manager_none_for_everyone_else():
+    """FD-023 addition - editing a profile/status is Owner/Manager
+    only, with Manager's reach further restricted (see
+    can_manage_employee_profile), unlike DEPARTMENT_MANAGE's
+    unrestricted full/full/none/none/none shape."""
+    assert ROLE_PERMISSIONS[MembershipRole.OWNER][Permission.EMPLOYEE_MANAGE] == PermissionScope.FULL
+    assert ROLE_PERMISSIONS[MembershipRole.MANAGER][Permission.EMPLOYEE_MANAGE] == PermissionScope.LIMITED
+    for role in (MembershipRole.EMPLOYEE, MembershipRole.ACCOUNTANT, MembershipRole.CUSTOMER_SUPPORT):
+        assert ROLE_PERMISSIONS[role][Permission.EMPLOYEE_MANAGE] == PermissionScope.NONE

@@ -73,6 +73,13 @@ def test_openapi_documents_the_real_employees_endpoint():
     assert "get" in spec["paths"]["/organizations/{organization_id}/employees"]
 
 
+def test_openapi_documents_the_real_employee_profile_endpoints():
+    spec = _load_spec()
+
+    assert "get" in spec["paths"]["/organizations/{organization_id}/employees/{membership_id}"]
+    assert "patch" in spec["paths"]["/organizations/{organization_id}/employees/{membership_id}"]
+
+
 def test_openapi_file_has_exactly_one_components_block():
     """A second top-level `components:` key is valid YAML but silently
     clobbers the first (last key wins) - caught once already while
@@ -83,6 +90,34 @@ def test_openapi_file_has_exactly_one_components_block():
 
     top_level_components_lines = [line for line in lines if line.rstrip("\n") == "components:"]
     assert len(top_level_components_lines) == 1
+
+
+def test_openapi_schemas_block_has_no_duplicate_schema_names():
+    """Same failure mode as the components-block test above, one level
+    deeper: a duplicate schema name within components.schemas is also
+    valid YAML that silently clobbers the first definition (last key
+    wins) - a real instance of this (a duplicate PaginationMeta) existed
+    in this file until FD-023 found and removed it. Checking the raw
+    text catches it the same way; the parsed dict can only ever show
+    the surviving definition."""
+    import re
+
+    with open(OPENAPI_FILE) as f:
+        lines = f.readlines()
+
+    # components.schemas is the last top-level section in this file, and
+    # its entries sit one level deeper (4 spaces) than every other
+    # 4-space-indented key in the document (paths' get/post/patch/
+    # delete/parameters) - scanning only from "  schemas:" onward avoids
+    # matching those unrelated keys too.
+    schemas_start = next(i for i, line in enumerate(lines) if line.rstrip("\n") == "  schemas:")
+    schema_name_pattern = re.compile(r"^    ([A-Za-z0-9_]+):$")
+    schema_names = [
+        match.group(1) for line in lines[schemas_start + 1 :] if (match := schema_name_pattern.match(line))
+    ]
+
+    duplicates = {name for name in schema_names if schema_names.count(name) > 1}
+    assert not duplicates, f"Duplicate schema name(s) in components.schemas: {duplicates}"
 
 
 def test_openapi_schemas_referenced_by_new_endpoints_are_defined():
@@ -100,6 +135,8 @@ def test_openapi_schemas_referenced_by_new_endpoints_are_defined():
     assert "UpdateDepartmentRequest" in schemas
     assert "DepartmentPublic" in schemas
     assert "EmployeePublic" in schemas
+    assert "EmployeeProfilePublic" in schemas
+    assert "UpdateEmployeeProfileRequest" in schemas
     assert "PaginationMeta" in schemas
 
 

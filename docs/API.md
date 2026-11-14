@@ -173,6 +173,7 @@ direction):
 | Organization settings | Full | Limited¹ | None | None | None |
 | Invite/manage memberships | Full | Limited² | None | None | None |
 | View employee directory | Full | Full | Limited³ | Limited³ | Limited³ |
+| Manage employee profile/status¹¹ | Full | Limited¹¹ | None | None | None |
 | Manage departments | Full | Full | None | None | None |
 | Create/assign tasks | Full | Full | None⁴ | None | None |
 | View/update own assigned task | Full | Full | Assigned | Assigned | Assigned |
@@ -207,6 +208,19 @@ direction):
 9. Activity entries about the employee's own actions/records only.
 10. Accountant: activity tied to invoices/payments/financial records.
     CustomerSupport: activity tied to customers/requests.
+11. FD-023 addition, not one of the original 12 Section 7.2 rows -
+    resolved with the user at FD-023 time (`Permission.EMPLOYEE_MANAGE`).
+    Editing job_title/department_id/manager_membership_id/status is an
+    action over a *person*, not operational data like a department
+    record, so it reuses `MEMBERSHIP_MANAGE`'s existing Manager reach
+    restriction rather than `DEPARTMENT_MANAGE`'s unrestricted
+    full/full/none/none/none shape: a Manager may only edit a target
+    whose role is Employee/Accountant/CustomerSupport, never an Owner's
+    or another Manager's profile - including their own, since Manager
+    is never in that target set. See `can_manage_employee_profile()`.
+    Owner's `full` scope has no such restriction, including self-edit -
+    unlike a role change, editing these fields grants no extra system
+    access, so there's no self-escalation risk to guard against.
 
 **No one may ever change their own role**, regardless of scope -
 resolves spec Section 13's mandatory scenario ("Employee tries to
@@ -227,11 +241,16 @@ scope-based field/query filtering of its own. **`EMPLOYEE_DIRECTORY_VIEW`
 taken literally: the `limited` response has exactly those four keys
 (`membership_id`/`name`/`role`/`status`), nothing else, not even a
 `null`-valued placeholder for the fields a `full`-scope caller gets.
-Later tasks nesting routes under `/organizations/<organization_id>/...`
-- FD-026 (tasks), FD-035 (customers), FD-042 (invoices), FD-047/FD-048
-(activity logs/notifications) - still need their own scope-based
-filtering; the matrix above is the contract, not the implementation,
-for the resources that don't exist yet.
+**`EMPLOYEE_MANAGE` (FD-023, below) is the first permission whose
+`limited` cell needs an object-level reach check beyond the scope
+itself** - `can_manage_employee_profile()` (`app/authz/service.py`),
+mirroring the reach check `can_assign_role()` already established for
+`MEMBERSHIP_MANAGE`. Later tasks nesting routes under
+`/organizations/<organization_id>/...` - FD-026 (tasks), FD-035
+(customers), FD-042 (invoices), FD-047/FD-048 (activity logs/
+notifications) - still need their own scope-based filtering; the
+matrix above is the contract, not the implementation, for the
+resources that don't exist yet.
 
 ## Invitations (FD-016)
 
@@ -355,10 +374,8 @@ such membership" from "that membership belongs to someone else's org."
 `GET /organizations/{organization_id}/employees` - gated by
 `EMPLOYEE_DIRECTORY_VIEW` (Authorization section above), which never
 grants `none` - every active member can see *some* version of the
-directory, never a flat `403`. Read-only; a single-record view, create,
-and edit are a separate future task (the spec's endpoint table lists
-`POST`/`PATCH .../employees/{employee_id}` too, but no task is
-assigned to them yet).
+directory, never a flat `403`. Read-only; the single-record view and
+edit endpoints are documented below (FD-023).
 
 **Membership-centric, not profile-centric.** Lists every row with an
 *active* `Membership` in the org (deactivated/suspended memberships are
@@ -408,6 +425,49 @@ this is the endpoint that actually implements it. `422` on an unknown
 query param, an out-of-range `page`/`per_page`, or a malformed
 `department_id`.
 
+## Employee profile & status management (FD-023)
+
+`GET` and `PATCH /organizations/{organization_id}/employees/{membership_id}`
+- `membership_id` names the *target employee's* `Membership`, not the
+caller's own. Both verbs resolve the target the same way
+(`get_target_membership_or_404`): a missing, cross-organization, or
+inactive (status != `active`) membership is a `404`, indistinguishable
+from any other reason the row can't be reached.
+
+**`GET` - gated by `EMPLOYEE_DIRECTORY_VIEW`, same as the list
+endpoint** (never `none`). Returns the directory's `full` field shape
+if the caller has `full` scope **or is viewing their own profile**,
+otherwise the `limited` shape - a self-view exception, since it's the
+caller's own data and grants no new access to anyone else's. Reuses
+the list endpoint's own cross-org-safe manager/department name
+resolution (`_resolve_manager_names`/`_resolve_departments`) rather
+than a separate serialization path, so this can't independently regress
+the leak FD-022's review caught.
+
+**`PATCH` - gated by a new `EMPLOYEE_MANAGE` permission** (see the
+Authorization section's footnote 11): `full` for Owner, `limited` for
+Manager (restricted to Employee/Accountant/CustomerSupport targets,
+checked by the object-level `can_manage_employee_profile()` *after*
+the target membership is fetched - the permission decorator alone only
+confirms the caller's role has *some* reach, never that it reaches
+this specific target), `none` for everyone else - an Employee can't
+edit their own profile through this endpoint, only view it.
+
+Body (all optional - partial update): `{"job_title"?: "...", "department_id"?:
+"uuid", "manager_membership_id"?: "uuid", "status"?: "active"|"inactive"|"suspended"}`.
+`job_title`/`department_id`/`manager_membership_id` accept an explicit
+`null` to clear them; `status` doesn't (`422` if sent as `null`).
+**Upserts** - nothing else in the codebase creates an `EmployeeProfile`
+row yet (FD-022's own note), so the first `PATCH` for a membership
+creates one; a later `PATCH` on the same membership updates it.
+`department_id` must reference an *active* department in this
+organization (`422 INVALID_DEPARTMENT` otherwise - missing, cross-org,
+and inactive are all rejected the same way, never distinguishable from
+each other); `manager_membership_id` must reference an *active*
+membership in this organization and can't equal the target's own
+`membership_id` (`422 INVALID_MANAGER_MEMBERSHIP` otherwise, covering
+missing/cross-org/inactive/self-as-own-manager identically).
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -427,6 +487,8 @@ query param, an out-of-range `page`/`per_page`, or a malformed
 | PATCH | `/api/v1/organizations/{organization_id}/departments/{department_id}` | Update a department | FD-021 |
 | DELETE | `/api/v1/organizations/{organization_id}/departments/{department_id}` | Deactivate a department (soft) | FD-021 |
 | GET | `/api/v1/organizations/{organization_id}/employees` | Search/filter/paginate the org's employee directory | FD-022 |
+| GET | `/api/v1/organizations/{organization_id}/employees/{membership_id}` | View one employee's full or limited profile | FD-023 |
+| PATCH | `/api/v1/organizations/{organization_id}/employees/{membership_id}` | Update (and implicitly create) an employee's profile/status | FD-023 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |
