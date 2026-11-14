@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { apiFetch, ApiError } from "@/api/client";
+import { apiFetch, apiFetchWithMeta, ApiError } from "@/api/client";
 
 function mockFetchOnce(body: unknown, status = 200) {
   vi.stubGlobal(
@@ -67,5 +67,33 @@ describe("apiFetch", () => {
       expect(error).toBeInstanceOf(ApiError);
       expect(error).toBeInstanceOf(Error);
     }
+  });
+});
+
+describe("apiFetchWithMeta", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns both data and meta from a paginated success envelope", async () => {
+    mockFetchOnce({
+      success: true,
+      message: "ok",
+      data: [{ id: "1" }],
+      meta: { page: 1, per_page: 20, total: 1, total_pages: 1 },
+    });
+
+    const result = await apiFetchWithMeta<{ id: string }[], { page: number; per_page: number; total: number; total_pages: number }>(
+      "/whatever",
+    );
+
+    expect(result.data).toEqual([{ id: "1" }]);
+    expect(result.meta).toEqual({ page: 1, per_page: 20, total: 1, total_pages: 1 });
+  });
+
+  it("throws the same ApiError as apiFetch on an error envelope", async () => {
+    mockFetchOnce({ success: false, error: { code: "NOT_FOUND", message: "Not found.", details: {} } }, 404);
+
+    await expect(apiFetchWithMeta("/whatever")).rejects.toBeInstanceOf(ApiError);
   });
 });

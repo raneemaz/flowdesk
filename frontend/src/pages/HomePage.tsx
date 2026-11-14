@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { OrganizationSwitcher } from "@/components/OrganizationSwitcher";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
+import { canManageDepartments } from "@/features/employees/permissions";
 
 const ROLE_LABELS: Record<string, string> = {
   owner: "Owner",
@@ -44,6 +45,16 @@ export function HomePage() {
             Viewing <span className="font-medium text-foreground">{activeMembership.organization.name}</span> as{" "}
             {ROLE_LABELS[activeMembership.role] ?? activeMembership.role}
           </p>
+          <nav className="flex gap-4 text-sm font-medium text-primary">
+            <Link to="/employees" className="hover:underline">
+              Employees
+            </Link>
+            {canManageDepartments(activeMembership.role) && (
+              <Link to="/departments" className="hover:underline">
+                Departments
+              </Link>
+            )}
+          </nav>
         </div>
       )}
 

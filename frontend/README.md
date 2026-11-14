@@ -4,8 +4,9 @@ React + TypeScript SPA for FlowDesk. Feature pages (auth, dashboards,
 domain modules) are added incrementally per the backlog in
 [`docs/FlowDesk_Specification.md`](../docs/FlowDesk_Specification.md);
 the application skeleton (FD-003), authentication - login/register,
-protected routes, auth state (FD-017), and organization onboarding -
-creation flow, org switcher (FD-018) - exist so far.
+protected routes, auth state (FD-017), organization onboarding -
+creation flow, org switcher (FD-018), and the employee frontend -
+directory, profile, department management (FD-024) - exist so far.
 
 ## Stack
 
@@ -32,10 +33,16 @@ frontend/
     types/
       user.ts              UserPublic - mirrors backend/openapi.yaml exactly
       organization.ts       OrganizationPublic/MembershipPublic - same
+      employee.ts            EmployeePublic/EmployeeProfilePublic/PaginationMeta - same (FD-024)
+      department.ts           DepartmentPublic - same (FD-024)
     api/
-      client.ts             apiFetch() - hybrid success/error envelope, ApiError
+      client.ts             apiFetch() - hybrid success/error envelope, ApiError;
+                             apiFetchWithMeta() - same, plus the `meta` sibling a
+                             paginated list response carries (FD-024)
       auth.ts                register/login/logout/getCurrentUser
       organizations.ts       createOrganization/listOrganizations
+      employees.ts            listEmployees/getEmployee/updateEmployeeProfile (FD-024)
+      departments.ts          createDepartment/listDepartments/updateDepartment/deactivateDepartment (FD-024)
     contexts/
       AuthContext.tsx        AuthProvider + useAuth() - current user, session status, CSRF token
       OrganizationContext.tsx  OrganizationProvider + useOrganization() - the caller's
@@ -46,18 +53,29 @@ frontend/
       organizations/
         schemas.ts             Zod schema for the create-organization form
         constants.ts           curated currency/timezone option lists for that form
+      employees/
+        constants.ts           role/employee-status labels and <select> option lists (FD-024)
+        permissions.ts          canManageEmployeeProfile/canManageDepartments - UI-only
+                                 show/hide hints, never the real authorization boundary (FD-024)
+        schemas.ts              Zod schema for the profile-edit form (FD-024)
+      departments/
+        schemas.ts              Zod schemas for the create/update department forms (FD-024)
     routes/
-      router.tsx           route table: /login, /register, protected "/" and "/organizations/new"
+      router.tsx           route table: /login, /register, protected "/", "/organizations/new",
+                            "/employees", "/employees/:membershipId", "/departments" (FD-024)
       ProtectedRoute.tsx    redirects to /login when there's no session
     pages/
       LoginPage.tsx
       RegisterPage.tsx
       HomePage.tsx           onboarding prompt or active-org summary - not the real dashboard, see below
       CreateOrganizationPage.tsx  the organization creation form (FD-018)
+      EmployeeDirectoryPage.tsx    search/filter/paginate the employee directory (FD-024)
+      EmployeeProfilePage.tsx      view/edit one employee's profile and status (FD-024)
+      DepartmentsPage.tsx          list/create/edit/deactivate departments (FD-024)
     components/
       OrganizationSwitcher.tsx  dropdown of the caller's active memberships (FD-018)
       ui/
-        button.tsx / input.tsx / label.tsx / select.tsx   shadcn primitives
+        button.tsx / input.tsx / label.tsx / select.tsx / textarea.tsx   shadcn primitives
     test/setup.ts           Vitest + jest-dom setup
 ```
 
@@ -163,6 +181,85 @@ in → onboarding prompt (zero organizations) → create first organization
 offered, new org auto-becomes active) → switch back to the first via the
 dropdown → hard page refresh keeps that choice → checked at mobile
 width.
+
+## Employee directory, profiles & department management (FD-024)
+
+- **No sidebar/dashboard shell yet** - FD-053 (after the analytics API,
+  FD-052) builds the real one; `HomePage` keeps its own minimal
+  `nav` with an "Employees" link (shown to every active member -
+  `EMPLOYEE_DIRECTORY_VIEW` never grants `none`) and a "Departments"
+  link (shown only for Owner/Manager).
+- **`EmployeeDirectoryPage`** (`/employees`) - search (name only, debounced
+  by requiring a "Search" submit rather than per-keystroke), role/status
+  filters, and a department filter that only appears for a viewer who can
+  also list departments (Owner/Manager) - populated from a real
+  `GET /departments` call, not a guessed list. Table columns are decided
+  by **whether a fetched record actually has the `email` key**, not by
+  re-deriving the viewer's scope from their role client-side - the
+  backend's `full`/`limited` response shape is the only source of truth
+  for what's visible (spec Section 32: never duplicate backend business
+  logic). Pagination uses the response's own `meta` via the new
+  `apiFetchWithMeta` (`api/client.ts`) - `apiFetch` alone only ever
+  returns `data`, and this is the first endpoint whose response needs
+  both.
+- **`EmployeeProfilePage`** (`/employees/:membershipId`) - renders
+  whatever fields the `GET` response contains (same key-presence
+  approach as the directory). An "Edit profile" button/form appears only
+  when `canManageEmployeeProfile` (a **UI-only hint**, see below) says
+  so; submitting always goes through the real `PATCH`, which the backend
+  independently re-authorizes - a wrong or stale hint only means a
+  button that 403s when clicked, never a security gap. An empty
+  `<select>` value (job title/department/manager) maps to an explicit
+  `null` in the request body to clear that field, matching the
+  backend's partial-update semantics (`docs/API.md`).
+- **`DepartmentsPage`** (`/departments`) - gated entirely by
+  `canManageDepartments`; an Employee/Accountant/CustomerSupport viewer
+  sees a plain "you don't have access" message instead of the page ever
+  calling the department API (which would 403 - `DEPARTMENT_MANAGE` has
+  no `limited` view cell). Resolves `DepartmentPublic.manager_membership_id`
+  (a raw id - the backend never promised a resolved name here, unlike
+  `EmployeePublic.manager`) to a display name via the employee directory
+  this viewer already has full access to. Deactivation asks for a native
+  `window.confirm` before calling `DELETE` - a UX guard, not a security
+  one (the backend's own deactivation is already a safe, idempotent soft
+  update, `docs/API.md`'s Departments section).
+- **`features/employees/permissions.ts`** - `canManageEmployeeProfile`/
+  `canManageDepartments` mirror `app/authz/permissions.py`'s
+  `EMPLOYEE_MANAGE`/`DEPARTMENT_MANAGE` and
+  `app/authz/service.py`'s `can_manage_employee_profile` **for UI
+  show/hide decisions only** - spec Section 7.3/32's "never trust
+  frontend role checks as authorization," the same principle
+  `ProtectedRoute.tsx` already documents for whole pages. Reviewed by
+  `tenant-security-reviewer`: every new TanStack Query key includes
+  `organizationId`, so switching the active organization can never leave
+  stale cross-org data visible; no write path ever treats a passing
+  permission hint as a substitute for the real `PATCH`/`POST`/`DELETE`
+  call actually succeeding.
+- **Known test-coverage gap** (flagged by the reviewer, not treated as
+  blocking): no automated test exercises switching the active
+  organization while one of these pages is mounted and asserting the
+  previous organization's rows disappear before the new one's data
+  arrives. In this app's actual navigation, the org switcher only lives
+  on `HomePage` - these pages are never mounted at the same time as it -
+  so the scenario doesn't correspond to a real user flow today; revisit
+  if/when a persistent nav shell (FD-053) puts the switcher and these
+  pages on screen together.
+
+**Verified against the real backend in a real browser**, as both an
+Owner and a freshly-added Employee-role member of the same organization:
+directory search/role/status/department filters and pagination; own-
+profile self-view (full fields, no edit button - Employee role has no
+`EMPLOYEE_MANAGE` reach even over itself) vs. viewing another member
+(limited fields, no edit button) vs. Owner editing a profile (upserts a
+not-yet-existing `EmployeeProfile` row, job title/status changes persist);
+department create → edit (rename, re-resolves the manager's name) →
+Deactivate button clicked, confirmation declined (no request sent,
+department unchanged) - the browser pane's automation dismisses native
+`window.confirm` dialogs, so the *accepted* path is covered by
+`DepartmentsPage.test.tsx` mocking `window.confirm` instead, not by this
+manual pass; `/departments` shows the access-denied state directly for
+the Employee account, and its nav link is hidden on `HomePage` for that
+role.
 
 ## Setup
 
