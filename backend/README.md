@@ -192,3 +192,17 @@ FLASK_ENV=development ./.venv/Scripts/python.exe -m flask --app wsgi run
 ```bash
 FLASK_ENV=testing ./.venv/Scripts/python.exe -m pytest -v
 ```
+
+`tests/conftest.py`'s `app` fixture disposes its SQLAlchemy engine
+(`db.session.remove()` + `db.engine.dispose()`) after every test. Each
+test gets its own fresh Flask app - and therefore its own engine/
+connection pool, bound via `db.init_app(app)` inside `create_app()` -
+for the simplest possible test isolation; without explicit disposal,
+connections from 270+ short-lived engines accumulated faster than
+Postgres's `max_connections` could absorb across a full suite run
+(confirmed via `pg_stat_activity`: ~43 open connections after one run
+that started from zero), producing nondeterministic deadlocks/FK
+violations/"row not found" errors in otherwise-correct, unrelated
+tests - not a bug in the code under test. Running a handful of test
+files together is fine; it only showed up once the suite grew large
+enough to approach the connection limit.
