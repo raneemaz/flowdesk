@@ -72,9 +72,10 @@ memberships), FD-015 (centralized RBAC — permission definitions,
 `require_permission` decorator, object-level membership checks; see
 `docs/API.md`'s Authorization section), FD-016 (employee
 invitations — secure expiring tokens, real SMTP email delivery,
-acceptance, cancellation; RBAC's first real consumer), and FD-017
+acceptance, cancellation; RBAC's first real consumer), FD-017
 (authentication frontend — login/register, protected routes, auth
-state; see `frontend/README.md`) are Done; no other feature pages
+state), and FD-018 (organization onboarding — creation flow, org
+switcher; see `frontend/README.md`) are Done; no other feature pages
 exist yet.
 
 ## Local development infrastructure

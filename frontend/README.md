@@ -3,8 +3,9 @@
 React + TypeScript SPA for FlowDesk. Feature pages (auth, dashboards,
 domain modules) are added incrementally per the backlog in
 [`docs/FlowDesk_Specification.md`](../docs/FlowDesk_Specification.md);
-the application skeleton (FD-003) and authentication - login/register,
-protected routes, auth state (FD-017) - exist so far.
+the application skeleton (FD-003), authentication - login/register,
+protected routes, auth state (FD-017), and organization onboarding -
+creation flow, org switcher (FD-018) - exist so far.
 
 ## Stack
 
@@ -30,23 +31,33 @@ frontend/
       queryClient.ts       shared TanStack Query client
     types/
       user.ts              UserPublic - mirrors backend/openapi.yaml exactly
+      organization.ts       OrganizationPublic/MembershipPublic - same
     api/
       client.ts             apiFetch() - hybrid success/error envelope, ApiError
       auth.ts                register/login/logout/getCurrentUser
+      organizations.ts       createOrganization/listOrganizations
     contexts/
       AuthContext.tsx        AuthProvider + useAuth() - current user, session status, CSRF token
+      OrganizationContext.tsx  OrganizationProvider + useOrganization() - the caller's
+                               memberships and which organization is "active" (see below)
     features/
       auth/
         schemas.ts            Zod schemas for the login/register forms (frontend UX validation only)
+      organizations/
+        schemas.ts             Zod schema for the create-organization form
+        constants.ts           curated currency/timezone option lists for that form
     routes/
-      router.tsx           route table: /login, /register, protected "/"
+      router.tsx           route table: /login, /register, protected "/" and "/organizations/new"
       ProtectedRoute.tsx    redirects to /login when there's no session
     pages/
       LoginPage.tsx
       RegisterPage.tsx
-      HomePage.tsx           minimal protected placeholder - not the real dashboard, see below
-    components/ui/
-      button.tsx / input.tsx / label.tsx   shadcn primitives
+      HomePage.tsx           onboarding prompt or active-org summary - not the real dashboard, see below
+      CreateOrganizationPage.tsx  the organization creation form (FD-018)
+    components/
+      OrganizationSwitcher.tsx  dropdown of the caller's active memberships (FD-018)
+      ui/
+        button.tsx / input.tsx / label.tsx / select.tsx   shadcn primitives
     test/setup.ts           Vitest + jest-dom setup
 ```
 
@@ -108,6 +119,50 @@ refresh keeps the session → log out → redirected to `/login`. Run with
 Redis (`FLASK_ENV=development`'s session store needs a real one - see
 `backend/README.md`); `testing` uses `fakeredis`, same as the backend's
 own test suite.
+
+## Organization onboarding (FD-018)
+
+- **`OrganizationContext`** fetches the caller's memberships
+  (`GET /organizations`) with TanStack Query (the spec's mandated data-
+  fetching library - FD-017 didn't need it since `AuthContext`'s one-shot
+  bootstrap call is a poor fit for a cache). It uses the query's
+  `isPending` flag rather than `isLoading`: in TanStack Query v5,
+  `isLoading` is `false` while a query is disabled (this one is, until
+  the caller is authenticated), which would otherwise let the
+  zero-organizations onboarding prompt flash on screen before the real
+  request has even gone out.
+- **"Active organization" is a purely client-side concept** - every
+  org-scoped backend endpoint takes `organization_id` from the URL path,
+  never a session (`backend/app/authz/decorators.py`), so there's
+  nothing to ask the server for. It's persisted in `localStorage` (not
+  `sessionStorage`, unlike the CSRF token above - "which org was I last
+  looking at" is reasonable to carry across browser restarts), keyed per
+  user id so one person's choice on a shared machine never becomes
+  another's default. Only `active` memberships are selectable - an
+  `inactive`/`suspended` one carries no capabilities server-side
+  (`get_active_membership_or_404`), so switching into it would just
+  produce 403s everywhere; the API still lists them for history, and
+  `OrganizationContext.memberships` still exposes them as-is.
+- **`CreateOrganizationPage`** (`/organizations/new`) only asks for
+  name, business email, currency, and timezone - `logo`/`phone`/
+  `address`/`date_format` are real fields `POST /organizations` already
+  accepts, but there's no organization-settings page yet to edit them
+  afterward (`backend/openapi.yaml` notes no `GET`/`PATCH
+  /organizations/{id}` exists), so collecting them now would just be
+  data nobody could ever change. On success the new organization becomes
+  the active one and the user is sent back to `/`.
+- **`HomePage`** shows an onboarding prompt when the caller has no active
+  memberships, or the active organization + `OrganizationSwitcher`
+  otherwise. It's still a placeholder, not the real dashboard (spec
+  Section 12) - that lands incrementally as the domain modules behind it
+  get built.
+
+**Verified against the real backend in a real browser:** register → log
+in → onboarding prompt (zero organizations) → create first organization
+(auto-becomes active, no Cancel link) → create a second (Cancel link now
+offered, new org auto-becomes active) → switch back to the first via the
+dropdown → hard page refresh keeps that choice → checked at mobile
+width.
 
 ## Setup
 

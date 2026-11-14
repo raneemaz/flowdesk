@@ -1,5 +1,6 @@
 import { createBrowserRouter } from "react-router-dom";
 
+import { CreateOrganizationPage } from "@/pages/CreateOrganizationPage";
 import { HomePage } from "@/pages/HomePage";
 import { LoginPage } from "@/pages/LoginPage";
 import { RegisterPage } from "@/pages/RegisterPage";
@@ -10,6 +11,9 @@ export const router = createBrowserRouter([
   { path: "/register", element: <RegisterPage /> },
   {
     element: <ProtectedRoute />,
-    children: [{ path: "/", element: <HomePage /> }],
+    children: [
+      { path: "/", element: <HomePage /> },
+      { path: "/organizations/new", element: <CreateOrganizationPage /> },
+    ],
   },
 ]);
