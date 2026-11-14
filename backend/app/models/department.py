@@ -71,6 +71,11 @@ class Department(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
     )
 
     organization = relationship("Organization", back_populates="departments")
+    # No cascade/passive_deletes here, unlike Organization.departments -
+    # deleting a department must not delete its employees' profiles, it
+    # only clears their department_id (FD-020's FK is ON DELETE SET
+    # NULL). This relationship is read-only browsing convenience.
+    employee_profiles = relationship("EmployeeProfile", back_populates="department")
 
     @validates("name")
     def _normalize_name(self, key, value):

@@ -75,9 +75,10 @@ invitations — secure expiring tokens, real SMTP email delivery,
 acceptance, cancellation; RBAC's first real consumer), FD-017
 (authentication frontend — login/register, protected routes, auth
 state), FD-018 (organization onboarding — creation flow, org switcher;
-see `frontend/README.md`), and FD-019 (Department model — org-scoped,
-manager reference; see `docs/DATABASE.md`) are Done; no other feature
-pages exist yet.
+see `frontend/README.md`), FD-019 (Department model — org-scoped,
+manager reference), and FD-020 (Employee profile model — linked to
+membership, department, manager; see `docs/DATABASE.md`) are Done; no
+other feature pages exist yet.
 
 ## Local development infrastructure
 

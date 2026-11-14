@@ -91,7 +91,13 @@ Links a `User` to an `Organization` with a role. Unique on
 - a user cannot have two memberships in the same org. Both FK columns
 are individually indexed (`ix_memberships_organization_id`,
 `ix_memberships_user_id`) since org-scoped queries filtering by either
-are the common case everywhere from here on.
+are the common case everywhere from here on. Also unique on
+`(id, organization_id)` (`uq_memberships_id_organization_id`, FD-020) -
+`id` is already unique as the PK, but Postgres still requires a unique
+constraint covering the *exact* column set a composite FK references;
+this is what lets `employee_profiles.(membership_id, organization_id)`
+be DB-enforced against this table (see below) instead of relying on
+application logic alone.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -199,3 +205,74 @@ confirms cascades never cross organizational boundaries. Deleting a
 manager's `Membership` row sets `manager_membership_id` to `NULL`
 rather than deleting the department - a department is organization
 history and must survive its manager leaving.
+
+### `employee_profiles` (FD-020)
+
+Fields per spec Section 10.1's EmployeeProfile entity, plus
+`manager_membership_id` - the task's own title ("linked to membership,
+department, manager") names a distinct per-employee "reports to"
+reference, separate from (though often equal to) their department's
+own `manager_membership_id`; FR-006 lists "manager" as its own
+employee-directory column alongside "department". Model + migration
+only so far - the directory/profile APIs are FD-022/FD-023, separate
+future tasks.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `organization_id` | UUID | required, FK -> `organizations.id`, `ON DELETE CASCADE`, indexed - **also** part of the composite FK below |
+| `membership_id` | UUID | required, **unique** (`uq_employee_profiles_membership_id` - at most one profile per membership), indexed |
+| `department_id` | UUID, nullable | FK -> `departments.id`, `ON DELETE SET NULL`, indexed |
+| `manager_membership_id` | UUID, nullable | FK -> `memberships.id`, `ON DELETE SET NULL`, indexed |
+| `job_title` | varchar(255), nullable | |
+| `status` | enum (`employee_status`) | `active` / `inactive` / `suspended` - see below for why this isn't `membership_status` reused, and why there's no `invited` state despite FR-009 listing one |
+| `created_at`, `updated_at` | timestamptz | |
+
+**`status` is deliberately independent of `Membership.status`.**
+`Membership.status` governs org access (can this person log in at all
+- `app/authz`); `EmployeeProfile.status` governs current employment
+(can this person be newly assigned work - FD-023's "deactivation
+doesn't break history"). They usually move together but aren't the
+same concept, and spec Section 10.1 lists "employment status" as
+`EmployeeProfile`'s own column, not a reuse of `Membership`'s.
+
+**No `invited` state**, even though FR-009 lists one: same tension
+`MembershipStatus` (FD-012) already resolved identically - an
+`EmployeeProfile` requires a real `membership_id`, and nothing is
+"invited" yet at the point a `Membership` (and therefore an
+`EmployeeProfile`) exists. That state lives entirely on the separate
+`Invitation` entity (FD-016), with no corresponding row here.
+
+**`membership_id` is DB-enforced to the correct organization - a
+composite FK, not just `FK(membership_id)` alone:**
+`ForeignKeyConstraint(['membership_id', 'organization_id'], ['memberships.id',
+'memberships.organization_id'], ondelete='CASCADE')`, backed by
+`memberships`'s new `uq_memberships_id_organization_id` constraint
+(FD-020, see above). Unlike `Department.manager_membership_id`
+(FD-019), this one *is* safe to make composite: the action is
+`CASCADE`, not `SET NULL` - deleting the row never needs to null out a
+`NOT NULL` column, so there's no ordering hazard across the multiple
+`ON DELETE CASCADE` paths converging here (`organizations` ->
+`employee_profiles` directly, and `organizations` -> `memberships` ->
+`employee_profiles`). `test_employee_profile_organization_id_must_match_its_memberships_organization`
+proves a mismatched `organization_id` is rejected outright, not just
+discouraged - genuine DB-level cross-tenant protection, not merely
+application logic.
+
+**`department_id` and `manager_membership_id` are *not* DB-constrained
+to this profile's own organization** - same reasoning, and same
+accepted gap, as `Department.manager_membership_id` (FD-019): a
+composite FK here would need `ON DELETE SET NULL`, which conflicts
+with `organization_id` staying `NOT NULL`. Deferred to FD-022/FD-023's
+future service layer (the same pattern `app/authz/service.py`'s
+`can_assign_role` already uses) -
+`test_employee_profile_model_does_not_itself_block_a_manager_from_a_different_organization`
+documents and locks in that this is intentional, not an oversight.
+
+**Cascade behavior:** deleting a `Membership` **deletes** its
+`EmployeeProfile` (`CASCADE`, not `SET NULL` - a profile has no
+identity independent of its membership). Deleting a `Department` or a
+manager's `Membership` only clears `department_id`/`manager_membership_id`
+(`SET NULL`) - a profile is organization history and survives either.
+Deleting an `Organization` removes only *its own* profiles, confirmed
+by `test_deleting_one_organizations_employee_profiles_does_not_touch_another_organizations`.

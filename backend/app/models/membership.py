@@ -34,7 +34,16 @@ class MembershipStatus(str, enum.Enum):
 
 class Membership(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
     __tablename__ = "memberships"
-    __table_args__ = (UniqueConstraint("organization_id", "user_id", name="uq_memberships_organization_id_user_id"),)
+    __table_args__ = (
+        UniqueConstraint("organization_id", "user_id", name="uq_memberships_organization_id_user_id"),
+        # Supports EmployeeProfile's composite FK (FD-020): `id` alone is
+        # already unique (it's the PK), but Postgres still requires a
+        # unique constraint covering the *exact* column set a composite
+        # FK references - this lets employee_profiles.(membership_id,
+        # organization_id) be DB-enforced against this table instead of
+        # relying on application logic alone for that cross-tenant check.
+        UniqueConstraint("id", "organization_id", name="uq_memberships_id_organization_id"),
+    )
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
@@ -67,6 +76,16 @@ class Membership(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
 
     organization = relationship("Organization", back_populates="memberships")
     user = relationship("User", back_populates="memberships")
+    employee_profile = relationship(
+        "EmployeeProfile",
+        back_populates="membership",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        # Disambiguates against EmployeeProfile.manager_membership_id -
+        # two separate FK paths from employee_profiles to this table.
+        foreign_keys="EmployeeProfile.membership_id",
+    )
 
     def to_public_dict(self) -> dict:
         return {
