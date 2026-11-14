@@ -86,6 +86,7 @@ def test_openapi_documents_the_real_tasks_endpoints():
     assert "post" in spec["paths"]["/organizations/{organization_id}/tasks"]
     assert "get" in spec["paths"]["/organizations/{organization_id}/tasks"]
     assert "get" in spec["paths"]["/organizations/{organization_id}/tasks/{task_id}"]
+    assert "patch" in spec["paths"]["/organizations/{organization_id}/tasks/{task_id}/assign"]
 
 
 def test_openapi_file_has_exactly_one_components_block():
@@ -147,6 +148,7 @@ def test_openapi_schemas_referenced_by_new_endpoints_are_defined():
     assert "UpdateEmployeeProfileRequest" in schemas
     assert "CreateTaskRequest" in schemas
     assert "TaskPublic" in schemas
+    assert "AssignTaskRequest" in schemas
     assert "PaginationMeta" in schemas
 
 

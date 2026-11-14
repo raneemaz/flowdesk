@@ -473,15 +473,14 @@ membership in this organization and can't equal the target's own
 `membership_id` (`422 INVALID_MANAGER_MEMBERSHIP` otherwise, covering
 missing/cross-org/inactive/self-as-own-manager identically).
 
-## Tasks (FD-026)
+## Tasks (FD-026, FD-027)
 
-Centralized in `backend/app/tasks/`. Creation/retrieval only - task
-assignment/reassignment is FD-027, the status workflow is FD-028,
+Centralized in `backend/app/tasks/`. Creation, retrieval, and
+assignment/reassignment so far - the status workflow is FD-028,
 editing and deadline validation is FD-029, comments are FD-030, and
-history is FD-031, all separate future tasks. No field on this
-endpoint family ever records a `TaskHistory` row yet - that starts
-once FD-027/FD-028/FD-029 (the actions that actually change
-something) exist.
+history *retrieval* is FD-031, all separate future tasks.
+Assignment (FD-027, below) is the first action to actually record a
+`TaskHistory` row - creation (FD-026) deliberately doesn't.
 
 **`POST /organizations/{organization_id}/tasks` - gated by
 `TASK_CREATE_ASSIGN`** (`full` for Owner/Manager, `none` for everyone
@@ -534,6 +533,32 @@ Pagination section above, sorted by `created_at` descending (a
 judgment call - newest tasks first, the conventional default for an
 issue tracker).
 
+**`PATCH /organizations/{organization_id}/tasks/{task_id}/assign` -
+gated by `TASK_CREATE_ASSIGN`** (same permission as creation - the
+baseline matrix's "Create/assign tasks" row covers both, with no
+object-level reach restriction the way `EMPLOYEE_MANAGE` has for
+Manager-vs-Owner: any Owner/Manager may assign/reassign any task in
+their organization). Body: `{"assignee_membership_id": "uuid" |
+null}` - **required**, not optional-to-omit like the partial-update
+schemas elsewhere, since this endpoint does exactly one thing and the
+caller always states the intended result; `null` unassigns. Must
+reference an *active* membership in this organization if non-null
+(`422 INVALID_ASSIGNEE` otherwise - missing, cross-org, and inactive
+all rejected identically, same pattern as `department_id` above).
+`404` for a missing or cross-organization `task_id` (`get_task_or_404`,
+same as the retrieval endpoints above).
+
+**Writes a `TaskHistory` row** (`event_type: "assignee_changed"`,
+`previous_value`/`new_value` as the raw assignee `membership_id`
+strings or `null`, `actor_membership_id` always the caller's own
+membership) - this task's own acceptance criterion ("reassignment
+keeps prior assignments in history"). **Idempotent**: reassigning to
+the assignee a task already has (including re-unassigning an
+already-unassigned one) is a `200` no-op that writes **no** history
+row, same convention `DELETE /departments/{id}`'s soft-deactivate
+already established - validation still runs first, so a no-op can't
+be used to skip `INVALID_ASSIGNEE` checking.
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -558,6 +583,7 @@ issue tracker).
 | POST | `/api/v1/organizations/{organization_id}/tasks` | Create a task (always unassigned, creator is the caller) | FD-026 |
 | GET | `/api/v1/organizations/{organization_id}/tasks` | Search/filter/paginate the org's tasks (full or assigned-only scope) | FD-026 |
 | GET | `/api/v1/organizations/{organization_id}/tasks/{task_id}` | View one task | FD-026 |
+| PATCH | `/api/v1/organizations/{organization_id}/tasks/{task_id}/assign` | Assign/reassign/unassign a task, recording history | FD-027 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |

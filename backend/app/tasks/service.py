@@ -16,7 +16,16 @@ from app.authz.permissions import PermissionScope
 from app.authz.service import check_scope_allows
 from app.errors import APIError
 from app.extensions import db
-from app.models import Department, DepartmentStatus, Task, TaskPriority, TaskStatus
+from app.models import (
+    Department,
+    DepartmentStatus,
+    Membership,
+    MembershipStatus,
+    Task,
+    TaskHistory,
+    TaskPriority,
+    TaskStatus,
+)
 
 
 def _validate_department(organization_id: uuid.UUID, department_id: uuid.UUID | None) -> None:
@@ -184,4 +193,70 @@ def get_task(
     task = get_task_or_404(organization_id, task_id)
     if not check_scope_allows(scope, caller_id=caller_membership_id, assignee_id=task.assignee_membership_id):
         raise APIError("You do not have permission to do this.", status_code=403, code="FORBIDDEN")
+    return task
+
+
+def _validate_assignee(organization_id: uuid.UUID, assignee_membership_id: uuid.UUID | None) -> None:
+    """assignee_membership_id, if given, must resolve to a real, active
+    Membership in this organization - mirrors
+    app.employees.service._validate_manager_membership's pattern (same
+    deferred-to-the-service-layer gap Task.assignee_membership_id's own
+    docstring names, FD-025). Unlike that one, there's no self-
+    reference to reject here - assigning a task to yourself is normal
+    (e.g. a Manager assigning themselves work)."""
+    if assignee_membership_id is None:
+        return
+
+    membership = (
+        db.session.query(Membership).filter_by(id=assignee_membership_id, organization_id=organization_id).first()
+    )
+    if membership is None or membership.status != MembershipStatus.ACTIVE:
+        raise APIError(
+            "assignee_membership_id must reference an active membership in this organization.",
+            status_code=422,
+            code="INVALID_ASSIGNEE",
+            details={"assignee_membership_id": "must reference an active membership in this organization"},
+        )
+
+
+def assign_task(
+    organization_id: uuid.UUID,
+    task_id: uuid.UUID,
+    *,
+    actor_membership_id: uuid.UUID,
+    assignee_membership_id: uuid.UUID | None,
+) -> Task:
+    """FD-027. No object-level reach check beyond TASK_CREATE_ASSIGN's
+    own full/none scope (unlike EMPLOYEE_MANAGE's Manager-vs-Owner
+    restriction) - the baseline matrix's "Create/assign tasks" row has
+    no reach nuance to implement, so any Owner/Manager may assign/
+    reassign any task in their organization.
+
+    Idempotent: reassigning to the assignee a task already has is a
+    no-op, same convention Department's deactivate endpoint already
+    established - no spurious TaskHistory row for a change that didn't
+    actually happen. A real change records one, with FR-012's "every
+    change records actor + timestamp" generalized to this field too
+    (the acceptance criterion this task's own title names: "validated
+    assignee, history").
+    """
+    task = get_task_or_404(organization_id, task_id)
+    _validate_assignee(organization_id, assignee_membership_id)
+
+    previous_assignee_membership_id = task.assignee_membership_id
+    if previous_assignee_membership_id == assignee_membership_id:
+        return task
+
+    task.assignee_membership_id = assignee_membership_id
+    db.session.add(
+        TaskHistory(
+            organization_id=organization_id,
+            task_id=task.id,
+            actor_membership_id=actor_membership_id,
+            event_type="assignee_changed",
+            previous_value=str(previous_assignee_membership_id) if previous_assignee_membership_id else None,
+            new_value=str(assignee_membership_id) if assignee_membership_id else None,
+        )
+    )
+    db.session.commit()
     return task

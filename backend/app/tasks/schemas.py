@@ -68,3 +68,15 @@ class ListTasksQuery(BaseModel):
         if self.created_from is not None and self.created_to is not None and self.created_from > self.created_to:
             raise ValueError("created_from must not be after created_to")
         return self
+
+
+class AssignTaskRequest(BaseModel):
+    """FD-027: body for PATCH /organizations/{id}/tasks/{task_id}/assign.
+    `assignee_membership_id` is required (not optional-to-omit, unlike
+    the partial-update schemas elsewhere in this project) - this
+    endpoint does exactly one thing, so the caller always states the
+    intended assignee; `null` is how a task gets unassigned."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    assignee_membership_id: uuid.UUID | None

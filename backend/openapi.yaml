@@ -1156,6 +1156,78 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/tasks/{task_id}/assign:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: task_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Tasks]
+      summary: Assign, reassign, or unassign a task
+      description: >
+        Requires TASK_CREATE_ASSIGN (full for Owner/Manager, none for
+        everyone else - same permission as creation, no object-level
+        reach restriction). Records a TaskHistory row
+        (event_type: assignee_changed) unless the request is a no-op
+        (reassigning to the same assignee, or unassigning an already-
+        unassigned task).
+      operationId: patchOrganizationTaskAssign
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignTaskRequest"
+      responses:
+        "200":
+          description: The task with its updated assignee
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/TaskPublic"
+        "400":
+          description: Request body is not valid JSON
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller's TASK_CREATE_ASSIGN scope is none
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or the task is missing/cross-organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (missing field, unknown field, or assignee_membership_id not an active membership in this organization)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /health:
     get:
       tags: [Health]
@@ -1484,6 +1556,20 @@ components:
         estimated_hours:
           type: string
           description: Decimal string, 0 to 9999.99.
+          nullable: true
+
+    AssignTaskRequest:
+      type: object
+      description: >
+        assignee_membership_id is required (not optional-to-omit) -
+        this endpoint does exactly one thing, so the caller always
+        states the intended assignee; null unassigns.
+      required: [assignee_membership_id]
+      additionalProperties: false
+      properties:
+        assignee_membership_id:
+          type: string
+          format: uuid
           nullable: true
 
     TaskPublic:
