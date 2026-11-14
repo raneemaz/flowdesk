@@ -12,7 +12,10 @@ not a substitute for reading the migration.
   in Python via `uuid.uuid4()` - not server-side, so it never depends on a
   Postgres extension.
 - **Timestamps:** `created_at`/`updated_at`, both timezone-aware UTC
-  (`app.models.base.TimestampMixin`).
+  (`app.models.base.TimestampMixin`). **One exception:** `task_histories`
+  (FD-025) - an append-only audit trail has no business having an
+  `updated_at` that would imply its rows can be edited after the fact,
+  so it declares `created_at` alone instead.
 - **Constraint/index naming:** Alembic's recommended convention
   (`ix_`/`uq_`/`ck_`/`fk_`/`pk_` prefixes), set on the shared `MetaData` in
   `app/extensions.py`.
@@ -284,3 +287,113 @@ manager's `Membership` only clears `department_id`/`manager_membership_id`
 (`SET NULL`) - a profile is organization history and survives either.
 Deleting an `Organization` removes only *its own* profiles, confirmed
 by `test_deleting_one_organizations_employee_profiles_does_not_touch_another_organizations`.
+
+### `tasks` (FD-025)
+
+Fields per spec Section 10.1's Task entity. Model + migration only so
+far - creation/retrieval, assignment, status workflow, editing,
+comments, and history are FD-026 through FD-031, separate future
+tasks. No `attachments` column: spec Section 10.1's separate
+`Attachment` entity ("metadata for uploaded files, linked to its
+entity") is its documented home, and no backlog task builds that
+entity yet - a backlog gap, not an oversight here.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `organization_id` | UUID | required, FK -> `organizations.id`, `ON DELETE CASCADE`, indexed - **also** part of the composite FK below |
+| `title` | varchar(255) | required, non-blank (`@validates`) |
+| `description` | text, nullable | |
+| `status` | enum (`task_status`) | `to_do` / `in_progress` / `under_review` / `completed` / `cancelled` - FR-012's workflow; default `to_do`. Transition enforcement is FD-028's job |
+| `priority` | enum (`task_priority`) | `low` / `medium` / `high` / `urgent` - not enumerated anywhere in the spec (FR-010/FR-014 just say "priority"); a judgment call, the conventional four-level scheme (Jira/Linear/Asana), distinct from this *backlog's own* P0-P3 priority column. Default `medium` |
+| `creator_membership_id` | UUID | required, indexed - **composite FK**, see below |
+| `assignee_membership_id` | UUID, nullable | FK -> `memberships.id`, `ON DELETE SET NULL`, indexed |
+| `department_id` | UUID, nullable | FK -> `departments.id`, `ON DELETE SET NULL`, indexed |
+| `start_date`, `due_date` | date, nullable | `due_date` indexed (future overdue-detection queries, FD-033) |
+| `estimated_hours`, `actual_hours` | numeric(6,2), nullable | decimal, not float (Section 10.3 rule #4, applied here even though hours aren't money) |
+| `created_at`, `updated_at` | timestamptz | |
+
+**`creator_membership_id` is DB-enforced to the correct organization -
+a composite FK, not just `FK(creator_membership_id)` alone**, the same
+technique `EmployeeProfile.membership_id` (FD-020) established:
+`ForeignKeyConstraint(['creator_membership_id', 'organization_id'],
+['memberships.id', 'memberships.organization_id'])`, backed by
+`memberships`'s existing `uq_memberships_id_organization_id`
+constraint. Unlike that one, this composite FK has **no `ON DELETE`
+clause** (defaults to `RESTRICT`), not `CASCADE`: who created a task is
+audit-relevant history (Section 10.3 rule #5) that must never silently
+vanish or drag the task down with it - the DB refuses the delete
+outright instead, confirmed by
+`test_deleting_the_creators_membership_is_blocked_while_it_still_has_tasks`.
+`test_task_creator_organization_id_must_match_its_memberships_organization`
+proves the cross-tenant case is rejected, mirroring
+`test_employee_profile_organization_id_must_match_its_memberships_organization`.
+
+**`assignee_membership_id` and `department_id` are *not* DB-constrained
+to this task's own organization** - same accepted gap, same reasoning,
+as `Department.manager_membership_id` (FD-019) and
+`EmployeeProfile.manager_membership_id`/`department_id` (FD-020): a
+composite FK here would need `ON DELETE SET NULL`, which conflicts
+with `organization_id` staying `NOT NULL`. Deferred to a future
+service layer (FD-026/FD-027), same pattern as those two -
+`test_task_model_does_not_itself_block_an_assignee_from_a_different_organization`
+and the department equivalent document and lock in that this is
+intentional. **No ORM `relationship()` attribute on either column**,
+for the same "don't trust the ORM traversal" reason those two don't
+have one (the lesson FD-022's tenant-security-reviewer finding already
+taught this codebase once).
+
+**Cascade behavior:** deleting an `Organization` **deletes** its tasks
+(`CASCADE`). Deleting the assignee's or the task's department's
+`Membership`/`Department` only clears `assignee_membership_id`/
+`department_id` (`SET NULL`) - a task is organization history and
+survives either. Deleting the **creator's** `Membership` is
+**blocked** (`RESTRICT`) while it still has tasks - see above.
+
+### `task_comments` / `task_histories` (FD-025)
+
+Both are children of `tasks`, with the same dual-FK pattern
+`employee_profiles.organization_id` established (FD-020):
+`organization_id` is independently FK'd to `organizations.id`
+(`ON DELETE CASCADE`) **and** composite-FK'd to `tasks.(id,
+organization_id)` (`ON DELETE CASCADE`) via a `uq_tasks_id_organization_id`
+unique constraint on `tasks` mirroring `memberships`'s own. This
+DB-enforces that a comment's or history entry's `organization_id` can
+never actually diverge from its parent task's real `organization_id` -
+two `ON DELETE CASCADE` paths safely converge here (`organizations` ->
+`task_comments`/`task_histories` directly, and `organizations` ->
+`tasks` -> `task_comments`/`task_histories`), same reasoning
+`employee_profiles`'s own section already covers.
+`test_task_comment_organization_id_must_match_its_tasks_organization`
+and its `task_histories` equivalent prove the cross-tenant case is
+rejected.
+
+| Column (`task_comments`) | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `organization_id` | UUID | required, dual-FK'd as above, indexed |
+| `task_id` | UUID | required, part of the composite FK, indexed |
+| `author_membership_id` | UUID, nullable | FK -> `memberships.id`, `ON DELETE SET NULL`, indexed - a comment is history and must outlive its author's membership row, same reasoning as `Invitation.inviter_id`/`Department.manager_membership_id` |
+| `body` | text | required, non-blank (`@validates`) |
+| `created_at`, `updated_at` | timestamptz | |
+
+| Column (`task_histories`) | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `organization_id` | UUID | required, dual-FK'd as above, indexed |
+| `task_id` | UUID | required, part of the composite FK, indexed |
+| `actor_membership_id` | UUID, nullable | FK -> `memberships.id`, `ON DELETE SET NULL`, indexed - same reasoning as `task_comments.author_membership_id` |
+| `event_type` | varchar(100), indexed | plain string, not a closed enum - FD-027/FD-028/FD-029/FD-031 (assignment, status workflow, editing, and history recording itself) haven't been built yet and are what will actually define the event taxonomy; inventing it now risks guessing wrong |
+| `previous_value`, `new_value` | text, nullable | free-form - different future event types will need different shapes of "what changed" |
+| `created_at` | timestamptz | **no `updated_at`** - see the Conventions section above |
+
+**Cascade behavior (both tables):** deleting a `Task` **deletes** its
+comments/history (`CASCADE` - neither has identity independent of its
+task). Deleting the author's/actor's `Membership` only clears
+`author_membership_id`/`actor_membership_id` (`SET NULL`) - a comment
+or history entry is organization history and survives either.
+`Task.comments`/`Task.history` are ORM relationships
+(`cascade="all, delete-orphan"`), with `Task.history` ordered by
+`created_at` (chronological, per FD-031's own task title) -
+`test_task_relationship_exposes_its_history_in_chronological_order`
+confirms rows inserted out of order still come back sorted.

@@ -83,10 +83,11 @@ list/create/update/deactivate, safe-deletion policy), FD-022
 only; see `docs/API.md`'s Employee directory section), FD-023
 (employee profile & status management — single-employee view/edit,
 deactivation doesn't break history; see `docs/API.md`'s Employee
-profile & status management section), and FD-024 (employee frontend —
+profile & status management section), FD-024 (employee frontend —
 directory, profile, department management; see
-`frontend/README.md`'s own section) are Done; no other feature pages
-exist yet.
+`frontend/README.md`'s own section), and FD-025 (Task/TaskComment/
+TaskHistory models, with indexes; see `docs/DATABASE.md`'s own
+sections) are Done; no other feature pages exist yet.
 
 ## Local development infrastructure
 
