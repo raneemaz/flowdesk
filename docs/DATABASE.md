@@ -158,3 +158,44 @@ SDK - see `backend/README.md` and `docs/API.md`'s Authorization-adjacent
 Invitations section for the full rationale (Section 35 open decision
 #4) and why the raw token is never returned in an API response, only
 emailed.
+
+### `departments` (FD-019)
+
+Fields per spec Section 10.1's Department entity. Model + migration
+only so far - CRUD routes/service are FD-021, a separate future task.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `organization_id` | UUID | required, FK -> `organizations.id`, `ON DELETE CASCADE`, indexed |
+| `name` | varchar(255) | required, trimmed; **not** unique - nothing in the spec requires distinct department names within an organization |
+| `description` | text, nullable | |
+| `manager_membership_id` | UUID, nullable | FK -> `memberships.id`, `ON DELETE SET NULL`, indexed. Nullable because FR-008 lists "assign ... managers" as its own action separate from "create" - a department can exist before one is assigned. No ORM `relationship()` of its own, same pattern as `invitations.inviter_id` - a loose, outlive-able reference, not a core identity link |
+| `status` | enum (`department_status`) | `active` / `inactive` - two states, not `membership_status`'s three; there's no "suspended department" concept anywhere in the spec. Defaults to `active` |
+| `created_at`, `updated_at` | timestamptz | |
+
+**`manager_membership_id` is not DB-constrained to the department's own
+organization.** A composite FK `(manager_membership_id, organization_id)
+-> memberships(id, organization_id)` was considered and rejected: a
+membership and its department-manager row can be deleted together via
+two independent `ON DELETE CASCADE` paths off the same `Organization`
+(one through `memberships`, one through `departments`), and Postgres
+doesn't guarantee which cascade fires first - a composite FK's `ON
+DELETE` action would need to be `SET NULL` to tolerate that ordering,
+but `organization_id` must stay `NOT NULL`, so that option doesn't
+exist. Enforcing "the manager belongs to this organization" is deferred
+to FD-021's future service layer (the same pattern `app/authz/service.py`'s
+`can_assign_role` already uses for a materially identical cross-tenant
+check) - `test_department_model_does_not_itself_block_a_manager_from_a_different_organization`
+documents and locks in that this is a known, intentional gap at the
+model layer, not an oversight.
+
+**Cascade behavior:** deleting an `Organization` removes only *its own*
+departments (scoped by `organization_id`, `passive_deletes=True` +
+`cascade="all, delete-orphan"` on `Organization.departments`, same
+pattern as `memberships`/`invitations`) -
+`test_deleting_one_organizations_departments_does_not_touch_another_organizations`
+confirms cascades never cross organizational boundaries. Deleting a
+manager's `Membership` row sets `manager_membership_id` to `NULL`
+rather than deleting the department - a department is organization
+history and must survive its manager leaving.
