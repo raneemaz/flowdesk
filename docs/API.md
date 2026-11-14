@@ -207,16 +207,17 @@ can't self-demote out of their own org either). Enforced by
 `can_assign_role()`, not yet wired to an endpoint (no membership-role-change
 endpoint is assigned to any task yet).
 
-**First consumed by a real endpoint in FD-016** (invitations, below) -
-organization creation/listing (FD-013/FD-014) predate RBAC and aren't
-org-scoped by nature (creating a brand-new org, or listing the caller's
-own memberships). Later tasks nesting routes under
-`/organizations/<organization_id>/...` - FD-021 (departments), FD-026
-(tasks), FD-035 (customers), FD-042 (invoices), FD-047/FD-048 (activity
-logs/notifications) - still need to apply their own scope-based
-field/query filtering for `limited`/`own`/`assigned`; the matrix above
-is the contract, not the implementation, for the resources that don't
-exist yet.
+**First consumed by a real endpoint in FD-016** (invitations, below),
+then FD-021 (departments, below) - organization creation/listing
+(FD-013/FD-014) predate RBAC and aren't org-scoped by nature (creating
+a brand-new org, or listing the caller's own memberships).
+`DEPARTMENT_MANAGE` only ever grants `full` or `none` (no
+`limited`/`own`/`assigned` cell to implement), so FD-021 needed no
+scope-based field/query filtering of its own - later tasks nesting
+routes under `/organizations/<organization_id>/...` - FD-026 (tasks),
+FD-035 (customers), FD-042 (invoices), FD-047/FD-048 (activity
+logs/notifications) - still do; the matrix above is the contract, not
+the implementation, for the resources that don't exist yet.
 
 ## Invitations (FD-016)
 
@@ -282,6 +283,59 @@ scope).
   - On success: creates the `Membership` (role = the invited role,
     status = active) and marks the invitation accepted, atomically.
 
+## Departments (FD-021)
+
+Centralized in `backend/app/departments/`, all four endpoints gated by
+`require_permission(Permission.DEPARTMENT_MANAGE)` from the
+Authorization section above (`full` for Owner/Manager, `none` for
+everyone else - already finalized by FD-015, nothing added to the
+matrix here). No list-specific permission exists: an Employee/
+Accountant/CustomerSupport gets `403` on `GET` too, not just the
+write endpoints - departments only has one capability row in spec
+Section 7.2 ("Manage departments"), not a separate "view" one.
+
+**`DELETE` is a soft deactivate, never a real row delete** - this
+task's own wording ("safe-deletion policy") and spec Section 10.3 rule
+#5 (never destroy history without a retention policy). It sets
+`status` to `inactive`; the row, and every historical
+`EmployeeProfile.department_id` reference to it, survive untouched.
+`PATCH` can set `status` back to `active` (reactivation) - there's no
+separate "reactivate" endpoint, since the four HTTP verbs the spec's
+endpoint table lists already cover it as an ordinary field update.
+
+**`manager_membership_id` is validated against the caller's own
+organization in the service layer** - `Department.manager_membership_id`
+(FD-019, `docs/DATABASE.md`) explicitly deferred this check here, since
+the model alone can't DB-enforce it without a `SET NULL` FK conflicting
+with `organization_id` staying required. Must resolve to a real,
+*active* `Membership` with that exact `organization_id` - a missing,
+cross-organization, or inactive one is rejected the same way
+(`422 INVALID_MANAGER_MEMBERSHIP`), so a caller can't distinguish "no
+such membership" from "that membership belongs to someone else's org."
+
+- `POST /organizations/{organization_id}/departments` - create. Body:
+  `{"name": "...", "description"?: "...", "manager_membership_id"?: "uuid"}`.
+  `name` is required and trimmed (a whitespace-only name is a `422`,
+  not silently accepted); `status` isn't accepted here - a new
+  department always starts `active`.
+- `GET /organizations/{organization_id}/departments` - list every
+  department for the org, any status (deactivation never hides
+  history, same convention as membership/invitation listing), sorted
+  by name.
+- `PATCH /organizations/{organization_id}/departments/{department_id}`
+  - partial update. Only fields actually present in the request body
+  are changed (`model_dump(exclude_unset=True)`, never a plain
+  `model_dump()`) - `description` and `manager_membership_id` accept an
+  explicit `null` to clear them, but `name` and `status` don't (neither
+  is a "clearable" concept) and return `422` if sent as `null`. `404`
+  if the department doesn't exist or belongs to a different
+  organization - indistinguishable from "doesn't exist", same
+  object-level-check convention as invitations.
+- `DELETE /organizations/{organization_id}/departments/{department_id}`
+  - deactivate (see above). Idempotent - deactivating an
+  already-inactive department is a `200` no-op, not an error. Same
+  `404` behavior as `PATCH` for a missing/cross-tenant department.
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -296,6 +350,10 @@ scope).
 | GET | `/api/v1/organizations/{organization_id}/invitations` | List every invitation for the org | FD-016 |
 | DELETE | `/api/v1/organizations/{organization_id}/invitations/{invitation_id}` | Cancel a pending invitation | FD-016 |
 | POST | `/api/v1/invitations/accept` | Accept an invitation by its raw token | FD-016 |
+| POST | `/api/v1/organizations/{organization_id}/departments` | Create a department | FD-021 |
+| GET | `/api/v1/organizations/{organization_id}/departments` | List every department for the org | FD-021 |
+| PATCH | `/api/v1/organizations/{organization_id}/departments/{department_id}` | Update a department | FD-021 |
+| DELETE | `/api/v1/organizations/{organization_id}/departments/{department_id}` | Deactivate a department (soft) | FD-021 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |

@@ -189,12 +189,15 @@ two independent `ON DELETE CASCADE` paths off the same `Organization`
 doesn't guarantee which cascade fires first - a composite FK's `ON
 DELETE` action would need to be `SET NULL` to tolerate that ordering,
 but `organization_id` must stay `NOT NULL`, so that option doesn't
-exist. Enforcing "the manager belongs to this organization" is deferred
-to FD-021's future service layer (the same pattern `app/authz/service.py`'s
-`can_assign_role` already uses for a materially identical cross-tenant
-check) - `test_department_model_does_not_itself_block_a_manager_from_a_different_organization`
-documents and locks in that this is a known, intentional gap at the
-model layer, not an oversight.
+exist. Enforcing "the manager belongs to this organization" is handled
+by `app/departments/service.py`'s `_validate_manager_membership` (FD-021,
+`docs/API.md`'s Departments section) instead - the same pattern
+`app/authz/service.py`'s `can_assign_role` already uses for a
+materially identical cross-tenant check. At the model layer itself the
+gap remains intentional, not an oversight -
+`test_department_model_does_not_itself_block_a_manager_from_a_different_organization`
+still documents and locks that in, since a future caller of the model
+that bypasses the service layer would otherwise have no protection.
 
 **Cascade behavior:** deleting an `Organization` removes only *its own*
 departments (scoped by `organization_id`, `passive_deletes=True` +

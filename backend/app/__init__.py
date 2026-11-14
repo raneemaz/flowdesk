@@ -5,6 +5,7 @@ from flask import Flask
 
 from app.auth.routes import auth_bp
 from app.config import API_PREFIX, CONFIG_BY_NAME
+from app.departments.routes import departments_bp
 from app.docs.routes import build_swagger_ui_blueprint, docs_bp
 from app.errors import register_error_handlers
 from app.extensions import db, migrate, sess
@@ -48,6 +49,7 @@ def register_blueprints(app):
     app.register_blueprint(auth_bp, url_prefix=API_PREFIX)
     app.register_blueprint(organizations_bp, url_prefix=API_PREFIX)
     app.register_blueprint(invitations_bp, url_prefix=API_PREFIX)
+    app.register_blueprint(departments_bp, url_prefix=API_PREFIX)
     app.register_blueprint(health_bp, url_prefix=API_PREFIX)
     app.register_blueprint(docs_bp, url_prefix=API_PREFIX)
     app.register_blueprint(build_swagger_ui_blueprint())

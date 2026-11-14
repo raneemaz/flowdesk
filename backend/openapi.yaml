@@ -547,6 +547,225 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/departments:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Departments]
+      summary: Create a department
+      description: >
+        Requires DEPARTMENT_MANAGE (see the Authorization section of
+        docs/API.md - Owner/Manager only). manager_membership_id, if
+        given, must be a real active membership in this same
+        organization (checked here, not DB-enforced on the model - see
+        docs/DATABASE.md's departments section).
+      operationId: postOrganizationDepartments
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDepartmentRequest"
+      responses:
+        "201":
+          description: Department created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/DepartmentPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller lacks DEPARTMENT_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed, or manager_membership_id is not a real active membership in this org
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                invalidManager:
+                  value:
+                    success: false
+                    error:
+                      code: INVALID_MANAGER_MEMBERSHIP
+                      message: manager_membership_id must reference an active membership in this organization.
+                      details: { manager_membership_id: must reference an active membership in this organization }
+
+    get:
+      tags: [Departments]
+      summary: List every department for the organization
+      description: Any status (active/inactive) - deactivation never hides history. Requires DEPARTMENT_MANAGE.
+      operationId: getOrganizationDepartments
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The organization's departments, sorted by name
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/DepartmentPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without DEPARTMENT_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/departments/{department_id}:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: department_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Departments]
+      summary: Update a department
+      description: >
+        Partial update - only fields present in the request body
+        change. description/manager_membership_id accept an explicit
+        null to clear them; name/status don't (422 if sent as null).
+        status may be set back to "active" here (reactivation) - there
+        is no separate reactivate endpoint.
+      operationId: patchOrganizationDepartment
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDepartmentRequest"
+      responses:
+        "200":
+          description: Department updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/DepartmentPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller lacks DEPARTMENT_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Department does not exist, or belongs to a different organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed, or manager_membership_id is not a real active membership in this org
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    delete:
+      tags: [Departments]
+      summary: Deactivate a department (soft)
+      description: >
+        Sets status to inactive - never deletes the row. Idempotent: a
+        department already inactive is a 200 no-op, not an error. Every
+        historical EmployeeProfile.department_id reference to it
+        survives untouched.
+      operationId: deleteOrganizationDepartment
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Department deactivated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/DepartmentPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller lacks DEPARTMENT_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Department does not exist, or belongs to a different organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /health:
     get:
       tags: [Health]
@@ -735,6 +954,69 @@ components:
           type: string
           format: uuid
           nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    CreateDepartmentRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+        manager_membership_id:
+          type: string
+          format: uuid
+          nullable: true
+
+    UpdateDepartmentRequest:
+      type: object
+      description: Partial update - every field optional. name/status may not be sent as null (422 if they are).
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+        manager_membership_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          enum: [active, inactive]
+
+    DepartmentPublic:
+      type: object
+      required: [id, organization_id, name, description, manager_membership_id, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        manager_membership_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          enum: [active, inactive]
         created_at:
           type: string
           format: date-time
