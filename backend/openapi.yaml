@@ -958,6 +958,204 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/tasks:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Tasks]
+      summary: Create a task
+      description: >
+        Requires TASK_CREATE_ASSIGN (full for Owner/Manager, none for
+        everyone else). Always creates an unassigned task - assignment
+        is a separate future task (FD-027). creator_membership_id is
+        always the caller's own membership, never accepted in the body.
+      operationId: postOrganizationTasks
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+      responses:
+        "201":
+          description: The created task
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/TaskPublic"
+        "400":
+          description: Request body is not valid JSON
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller's TASK_CREATE_ASSIGN scope is none
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (missing/blank title, invalid department_id, due_date before start_date, or unknown field)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    get:
+      tags: [Tasks]
+      summary: Search, filter, and paginate the organization's tasks
+      description: >
+        Requires TASK_VIEW_UPDATE (never none) - full scope
+        (Owner/Manager) sees every task; assigned scope (Employee/
+        Accountant/CustomerSupport) sees only tasks assigned to the
+        caller, regardless of any assignee_membership_id filter they
+        supply (silently overridden, not rejected).
+      operationId: getOrganizationTasks
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: assignee_membership_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: department_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: priority
+          in: query
+          schema: { type: string, enum: [low, medium, high, urgent] }
+        - name: status
+          in: query
+          schema: { type: string, enum: [to_do, in_progress, under_review, completed, cancelled] }
+        - name: due_date_from
+          in: query
+          schema: { type: string, format: date }
+        - name: due_date_to
+          in: query
+          schema: { type: string, format: date }
+        - name: created_from
+          in: query
+          schema: { type: string, format: date }
+        - name: created_to
+          in: query
+          schema: { type: string, format: date }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: A page of the organization's tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TaskPublic"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown query param, out-of-range page/per_page, malformed filter, or an inverted date range)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/tasks/{task_id}:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: task_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Tasks]
+      summary: View one task
+      description: >
+        Requires TASK_VIEW_UPDATE. full scope may view any task in the
+        organization; assigned scope may only view a task assigned to
+        the caller (403 if it exists in this org but isn't theirs).
+      operationId: getOrganizationTask
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The task
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/TaskPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Task exists in this organization but the caller's assigned scope doesn't reach it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or the task is missing/cross-organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /health:
     get:
       tags: [Health]
@@ -1248,6 +1446,108 @@ components:
         status:
           type: string
           enum: [active, inactive, suspended]
+        created_at:
+          type: string
+          format: date-time
+
+    CreateTaskRequest:
+      type: object
+      description: >
+        Deliberately does not accept assignee_membership_id (FD-027's
+        job, see docs/API.md's Tasks section) or status/actual_hours
+        (always to_do / unset at creation).
+      required: [title]
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        department_id:
+          type: string
+          format: uuid
+          nullable: true
+        start_date:
+          type: string
+          format: date
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        estimated_hours:
+          type: string
+          description: Decimal string, 0 to 9999.99.
+          nullable: true
+
+    TaskPublic:
+      type: object
+      required:
+        [
+          id,
+          organization_id,
+          title,
+          description,
+          status,
+          priority,
+          creator_membership_id,
+          assignee_membership_id,
+          department_id,
+          start_date,
+          due_date,
+          estimated_hours,
+          actual_hours,
+          created_at,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [to_do, in_progress, under_review, completed, cancelled]
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        creator_membership_id:
+          type: string
+          format: uuid
+        assignee_membership_id:
+          type: string
+          format: uuid
+          nullable: true
+        department_id:
+          type: string
+          format: uuid
+          nullable: true
+        start_date:
+          type: string
+          format: date
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        estimated_hours:
+          type: string
+          nullable: true
+        actual_hours:
+          type: string
+          nullable: true
         created_at:
           type: string
           format: date-time

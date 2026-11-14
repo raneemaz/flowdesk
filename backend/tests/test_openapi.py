@@ -80,6 +80,14 @@ def test_openapi_documents_the_real_employee_profile_endpoints():
     assert "patch" in spec["paths"]["/organizations/{organization_id}/employees/{membership_id}"]
 
 
+def test_openapi_documents_the_real_tasks_endpoints():
+    spec = _load_spec()
+
+    assert "post" in spec["paths"]["/organizations/{organization_id}/tasks"]
+    assert "get" in spec["paths"]["/organizations/{organization_id}/tasks"]
+    assert "get" in spec["paths"]["/organizations/{organization_id}/tasks/{task_id}"]
+
+
 def test_openapi_file_has_exactly_one_components_block():
     """A second top-level `components:` key is valid YAML but silently
     clobbers the first (last key wins) - caught once already while
@@ -137,6 +145,8 @@ def test_openapi_schemas_referenced_by_new_endpoints_are_defined():
     assert "EmployeePublic" in schemas
     assert "EmployeeProfilePublic" in schemas
     assert "UpdateEmployeeProfileRequest" in schemas
+    assert "CreateTaskRequest" in schemas
+    assert "TaskPublic" in schemas
     assert "PaginationMeta" in schemas
 
 

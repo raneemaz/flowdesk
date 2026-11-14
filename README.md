@@ -85,9 +85,11 @@ only; see `docs/API.md`'s Employee directory section), FD-023
 deactivation doesn't break history; see `docs/API.md`'s Employee
 profile & status management section), FD-024 (employee frontend —
 directory, profile, department management; see
-`frontend/README.md`'s own section), and FD-025 (Task/TaskComment/
+`frontend/README.md`'s own section), FD-025 (Task/TaskComment/
 TaskHistory models, with indexes; see `docs/DATABASE.md`'s own
-sections) are Done; no other feature pages exist yet.
+sections), and FD-026 (task creation/retrieval — pagination, filters;
+see `docs/API.md`'s Tasks section) are Done; no other feature pages
+exist yet.
 
 ## Local development infrastructure
 

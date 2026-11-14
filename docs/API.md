@@ -245,8 +245,13 @@ taken literally: the `limited` response has exactly those four keys
 `limited` cell needs an object-level reach check beyond the scope
 itself** - `can_manage_employee_profile()` (`app/authz/service.py`),
 mirroring the reach check `can_assign_role()` already established for
-`MEMBERSHIP_MANAGE`. Later tasks nesting routes under
-`/organizations/<organization_id>/...` - FD-026 (tasks), FD-035
+`MEMBERSHIP_MANAGE`. **`TASK_VIEW_UPDATE` (FD-026, below) is the first
+permission whose `assigned` scope is translated into a list-query row
+filter**, not a field-visibility filter like `EMPLOYEE_DIRECTORY_VIEW`'s
+`limited` cell - every caller who can see a task sees every one of its
+fields, the scope only decides *which* tasks are visible at all
+(`app/tasks/service.py`'s `list_tasks`/`get_task`). Later tasks nesting
+routes under `/organizations/<organization_id>/...` - FD-035
 (customers), FD-042 (invoices), FD-047/FD-048 (activity logs/
 notifications) - still need their own scope-based filtering; the
 matrix above is the contract, not the implementation, for the
@@ -468,6 +473,67 @@ membership in this organization and can't equal the target's own
 `membership_id` (`422 INVALID_MANAGER_MEMBERSHIP` otherwise, covering
 missing/cross-org/inactive/self-as-own-manager identically).
 
+## Tasks (FD-026)
+
+Centralized in `backend/app/tasks/`. Creation/retrieval only - task
+assignment/reassignment is FD-027, the status workflow is FD-028,
+editing and deadline validation is FD-029, comments are FD-030, and
+history is FD-031, all separate future tasks. No field on this
+endpoint family ever records a `TaskHistory` row yet - that starts
+once FD-027/FD-028/FD-029 (the actions that actually change
+something) exist.
+
+**`POST /organizations/{organization_id}/tasks` - gated by
+`TASK_CREATE_ASSIGN`** (`full` for Owner/Manager, `none` for everyone
+else - resolves Section 35 open decision #8, already finalized by
+FD-015). Body: `{"title": "...", "description"?: "...", "priority"?:
+"low"|"medium"|"high"|"urgent", "department_id"?: "uuid", "start_date"?:
+"YYYY-MM-DD", "due_date"?: "YYYY-MM-DD", "estimated_hours"?: "0.00"-"9999.99"}`.
+**Deliberately does not accept `assignee_membership_id`** - FR-011
+treats assignment as its own action, separate from creation (FD-027's
+job); every new task starts unassigned. Nor `status` (always starts
+`to_do`, the model's own default) or `actual_hours` (accrues as work
+happens). `creator_membership_id` is always the caller's own
+membership (`g.current_membership.id`) - never accepted from the
+request body, so it can't be spoofed. `department_id`, if given, must
+reference an *active* department in this organization (`422
+INVALID_DEPARTMENT` otherwise - missing, cross-org, and inactive all
+rejected identically, mirroring FD-023's `_validate_department`). A
+basic `due_date >= start_date` sanity check applies at creation
+(`422` if violated) - distinct from FD-029's later "date validation on
+change," which governs *editing* an existing task's dates.
+
+**`GET /organizations/{organization_id}/tasks` and `GET
+.../tasks/{task_id}` - both gated by `TASK_VIEW_UPDATE`**, which never
+grants `none` (`full` for Owner/Manager, `assigned` for Employee/
+Accountant/CustomerSupport). Unlike `EMPLOYEE_DIRECTORY_VIEW`'s
+`limited` cell, `TASK_VIEW_UPDATE` never restricts *fields* - every
+caller who can see a task sees every one of its fields. `assigned`
+scope restricts *which* tasks are visible: the list endpoint forces
+the query to `assignee_membership_id == caller's own membership id`
+**regardless of any `assignee_membership_id` the caller supplies** -
+silently overridden, not rejected, so a non-matching filter value
+never confirms or denies whether some other assignee has tasks in this
+org. The single-task endpoint applies the same restriction as an
+object-level check (`check_scope_allows`): a task that exists in the
+caller's own organization but isn't assigned to them is `403`, not
+`404` - same `can_assign_role`-style distinction already established
+for membership management (exists-but-you-can't-reach-it is `403`;
+missing-or-cross-organization is `404`, indistinguishable from each
+other).
+
+**Filters** (`assignee_membership_id`, `department_id`, `priority`,
+`status`, `due_date_from`/`due_date_to`, `created_from`/`created_to` -
+all optional; FR-014) apply regardless of scope, same reasoning as the
+employee directory's own filters - a non-matching filter value simply
+returns zero rows, never an error that would confirm something exists
+in a different organization. `due_date_from`/`due_date_to` and
+`created_from`/`created_to` are inclusive day-level ranges (`422` if
+either pair is inverted). **Pagination** uses the contract from the
+Pagination section above, sorted by `created_at` descending (a
+judgment call - newest tasks first, the conventional default for an
+issue tracker).
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -489,6 +555,9 @@ missing/cross-org/inactive/self-as-own-manager identically).
 | GET | `/api/v1/organizations/{organization_id}/employees` | Search/filter/paginate the org's employee directory | FD-022 |
 | GET | `/api/v1/organizations/{organization_id}/employees/{membership_id}` | View one employee's full or limited profile | FD-023 |
 | PATCH | `/api/v1/organizations/{organization_id}/employees/{membership_id}` | Update (and implicitly create) an employee's profile/status | FD-023 |
+| POST | `/api/v1/organizations/{organization_id}/tasks` | Create a task (always unassigned, creator is the caller) | FD-026 |
+| GET | `/api/v1/organizations/{organization_id}/tasks` | Search/filter/paginate the org's tasks (full or assigned-only scope) | FD-026 |
+| GET | `/api/v1/organizations/{organization_id}/tasks/{task_id}` | View one task | FD-026 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |
