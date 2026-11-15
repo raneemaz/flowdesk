@@ -473,15 +473,16 @@ membership in this organization and can't equal the target's own
 `membership_id` (`422 INVALID_MANAGER_MEMBERSHIP` otherwise, covering
 missing/cross-org/inactive/self-as-own-manager identically).
 
-## Tasks (FD-026, FD-027, FD-028, FD-029)
+## Tasks (FD-026 through FD-030)
 
 Centralized in `backend/app/tasks/`. Creation, retrieval, assignment/
-reassignment, the status workflow, and general editing so far -
-comments are FD-030 and history *retrieval* is FD-031, both separate
-future tasks. Assignment (FD-027) was the first action to actually
-record a `TaskHistory` row - creation (FD-026) deliberately doesn't;
-status changes (FD-028) were the second, and editing (FD-029, below)
-is the third.
+reassignment, the status workflow, general editing, and comments so
+far - history *retrieval* is FD-031, a separate future task.
+Assignment (FD-027) was the first action to actually record a
+`TaskHistory` row - creation (FD-026) deliberately doesn't; status
+changes (FD-028) were the second, editing (FD-029) the third. Comments
+(FD-030, below) don't write to `TaskHistory` at all - a comment *is*
+its own record (`TaskComment`), not a change to the task's own fields.
 
 **`POST /organizations/{organization_id}/tasks` - gated by
 `TASK_CREATE_ASSIGN`** (`full` for Owner/Manager, `none` for everyone
@@ -641,6 +642,28 @@ history entry for a field that didn't really change. A request that
 changes nothing is a `200` no-op with no history written at all, same
 convention `/assign`/`/status` already established.
 
+**`POST`/`GET /organizations/{organization_id}/tasks/{task_id}/comments`
+- both gated by `TASK_VIEW_UPDATE`**, reusing `get_task`'s own
+object-level reach check (404 missing/cross-organization, 403 for an
+`assigned`-scope caller whose task isn't theirs) as this task's own
+"access-restricted" acceptance criterion: posting or reading a task's
+comments needs exactly the same access as viewing the task itself,
+nothing more and nothing less - `full` scope (Owner/Manager) on any
+task, `assigned` scope only on a task actually assigned to the caller.
+
+- `POST` body: `{"body": "..."}` - required, non-blank (same
+  `@validates`-backed rule as every other free-text field in this
+  project). `author_membership_id` is always the caller's own
+  membership, never accepted from the request body. No `attachment`
+  field - same documented gap as `Task` itself (Section 10.1's
+  `Attachment` entity has no backlog task yet).
+- `GET` - paginated with the usual contract, ordered **chronologically,
+  oldest first** (a conversation thread) - the opposite of the tasks
+  list's own newest-first default, which is about triage, not reading
+  a discussion in order.
+- No edit or delete endpoint - FD-030's own scope is posting and
+  reading comments, not revising or removing them once posted.
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -668,6 +691,8 @@ convention `/assign`/`/status` already established.
 | PATCH | `/api/v1/organizations/{organization_id}/tasks/{task_id}/assign` | Assign/reassign/unassign a task, recording history | FD-027 |
 | PATCH | `/api/v1/organizations/{organization_id}/tasks/{task_id}/status` | Move a task through its status workflow, recording history | FD-028 |
 | PATCH | `/api/v1/organizations/{organization_id}/tasks/{task_id}` | Edit a task's fields (not assignee/status), recording history | FD-029 |
+| POST | `/api/v1/organizations/{organization_id}/tasks/{task_id}/comments` | Post a comment on a task | FD-030 |
+| GET | `/api/v1/organizations/{organization_id}/tasks/{task_id}/comments` | List a task's comments, chronologically | FD-030 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |

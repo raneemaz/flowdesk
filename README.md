@@ -90,8 +90,9 @@ TaskHistory models, with indexes; see `docs/DATABASE.md`'s own
 sections), FD-026 (task creation/retrieval — pagination, filters), and
 FD-027 (task assignment/reassignment — validated assignee, history),
 FD-028 (task status workflow — To Do → In Progress → Under Review →
-Completed, Cancelled terminal), and FD-029 (task editing & deadlines —
-date validation, history on change; see `docs/API.md`'s Tasks
+Completed, Cancelled terminal), FD-029 (task editing & deadlines —
+date validation, history on change), and FD-030 (task comments —
+access-restricted, author + timestamp; see `docs/API.md`'s Tasks
 section) are Done; no other feature pages exist yet.
 
 ## Local development infrastructure

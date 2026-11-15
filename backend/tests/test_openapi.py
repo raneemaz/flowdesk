@@ -89,6 +89,8 @@ def test_openapi_documents_the_real_tasks_endpoints():
     assert "patch" in spec["paths"]["/organizations/{organization_id}/tasks/{task_id}"]
     assert "patch" in spec["paths"]["/organizations/{organization_id}/tasks/{task_id}/assign"]
     assert "patch" in spec["paths"]["/organizations/{organization_id}/tasks/{task_id}/status"]
+    assert "post" in spec["paths"]["/organizations/{organization_id}/tasks/{task_id}/comments"]
+    assert "get" in spec["paths"]["/organizations/{organization_id}/tasks/{task_id}/comments"]
 
 
 def test_openapi_file_has_exactly_one_components_block():
@@ -153,6 +155,8 @@ def test_openapi_schemas_referenced_by_new_endpoints_are_defined():
     assert "AssignTaskRequest" in schemas
     assert "UpdateTaskStatusRequest" in schemas
     assert "UpdateTaskRequest" in schemas
+    assert "CreateTaskCommentRequest" in schemas
+    assert "TaskCommentPublic" in schemas
     assert "PaginationMeta" in schemas
 
 

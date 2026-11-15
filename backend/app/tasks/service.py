@@ -23,6 +23,7 @@ from app.models import (
     Membership,
     MembershipStatus,
     Task,
+    TaskComment,
     TaskHistory,
     TaskPriority,
     TaskStatus,
@@ -446,3 +447,63 @@ def update_task(organization_id: uuid.UUID, task_id: uuid.UUID, fields: dict, *,
         db.session.add_all(history_entries)
     db.session.commit()
     return task
+
+
+def _set_comment_body(comment: TaskComment, body: str) -> None:
+    # TaskComment.body's own @validates (strips and rejects a blank
+    # result, e.g. whitespace-only, which passes pydantic's
+    # min_length=1 but not this) - converted to a 422 here rather than
+    # letting the bare ValueError escape as an unhandled 500, same
+    # pattern _set_title already established.
+    try:
+        comment.body = body
+    except ValueError as exc:
+        raise APIError(str(exc), status_code=422, code="VALIDATION_ERROR", details={"body": str(exc)})
+
+
+def create_task_comment(
+    organization_id: uuid.UUID,
+    task_id: uuid.UUID,
+    *,
+    scope: PermissionScope,
+    caller_membership_id: uuid.UUID,
+    author_membership_id: uuid.UUID,
+    body: str,
+) -> TaskComment:
+    """FD-030. Reuses get_task's own reach check (404 for missing/
+    cross-organization, 403 for an `assigned`-scope caller whose task
+    isn't theirs) as the "access-restricted" gate this task's own
+    title names - posting a comment requires the same access as
+    viewing the task, nothing more. `author_membership_id` is always
+    the caller's own membership (set by the route from
+    g.current_membership.id), never accepted from the request body.
+    """
+    task = get_task(organization_id, task_id, scope=scope, caller_membership_id=caller_membership_id)
+
+    comment = TaskComment(organization_id=organization_id, task_id=task.id, author_membership_id=author_membership_id)
+    _set_comment_body(comment, body)
+
+    db.session.add(comment)
+    db.session.commit()
+    return comment
+
+
+def list_task_comments(
+    organization_id: uuid.UUID,
+    task_id: uuid.UUID,
+    *,
+    scope: PermissionScope,
+    caller_membership_id: uuid.UUID,
+    page: int,
+    per_page: int,
+) -> tuple[list[TaskComment], int]:
+    """Same reach check as create_task_comment - a caller who can't
+    view the task can't see its comments either. Chronological, oldest
+    first (a conversation thread), unlike the tasks list's own
+    newest-first default."""
+    task = get_task(organization_id, task_id, scope=scope, caller_membership_id=caller_membership_id)
+
+    query = db.session.query(TaskComment).filter_by(organization_id=organization_id, task_id=task.id)
+    total = query.count()
+    comments = query.order_by(TaskComment.created_at.asc()).offset((page - 1) * per_page).limit(per_page).all()
+    return comments, total

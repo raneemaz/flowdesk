@@ -7,12 +7,23 @@ from app.authz.permissions import Permission
 from app.errors import APIError, validation_error_details
 from app.tasks.schemas import (
     AssignTaskRequest,
+    CreateTaskCommentRequest,
     CreateTaskRequest,
+    ListTaskCommentsQuery,
     ListTasksQuery,
     UpdateTaskRequest,
     UpdateTaskStatusRequest,
 )
-from app.tasks.service import assign_task, create_task, get_task, list_tasks, update_task, update_task_status
+from app.tasks.service import (
+    assign_task,
+    create_task,
+    create_task_comment,
+    get_task,
+    list_task_comments,
+    list_tasks,
+    update_task,
+    update_task_status,
+)
 
 tasks_bp = Blueprint("tasks", __name__)
 
@@ -176,4 +187,63 @@ def patch_task_status(organization_id, task_id):
     )
 
     body = {"success": True, "message": "Task status updated", "data": task.to_public_dict()}
+    return jsonify(body), 200
+
+
+@tasks_bp.route("/organizations/<uuid:organization_id>/tasks/<uuid:task_id>/comments", methods=["POST"])
+@login_required
+@csrf_protect
+@require_permission(Permission.TASK_VIEW_UPDATE)
+def post_task_comments(organization_id, task_id):
+    payload = request.get_json(silent=True)
+    if payload is None:
+        raise APIError("Request body must be valid JSON.", status_code=400, code="BAD_REQUEST")
+
+    try:
+        data = CreateTaskCommentRequest.model_validate(payload)
+    except ValidationError as exc:
+        raise APIError(
+            "Validation failed", status_code=422, code="VALIDATION_ERROR", details=validation_error_details(exc)
+        )
+
+    comment = create_task_comment(
+        organization_id,
+        task_id,
+        scope=g.permission_scope,
+        caller_membership_id=g.current_membership.id,
+        author_membership_id=g.current_membership.id,
+        body=data.body,
+    )
+
+    body = {"success": True, "message": "Comment created", "data": comment.to_public_dict()}
+    return jsonify(body), 201
+
+
+@tasks_bp.route("/organizations/<uuid:organization_id>/tasks/<uuid:task_id>/comments", methods=["GET"])
+@login_required
+@require_permission(Permission.TASK_VIEW_UPDATE)
+def get_task_comments(organization_id, task_id):
+    try:
+        query = ListTaskCommentsQuery.model_validate(request.args.to_dict())
+    except ValidationError as exc:
+        raise APIError(
+            "Validation failed", status_code=422, code="VALIDATION_ERROR", details=validation_error_details(exc)
+        )
+
+    comments, total = list_task_comments(
+        organization_id,
+        task_id,
+        scope=g.permission_scope,
+        caller_membership_id=g.current_membership.id,
+        page=query.page,
+        per_page=query.per_page,
+    )
+    total_pages = (total + query.per_page - 1) // query.per_page if total else 0
+
+    body = {
+        "success": True,
+        "message": "Comments retrieved",
+        "data": [comment.to_public_dict() for comment in comments],
+        "meta": {"page": query.page, "per_page": query.per_page, "total": total, "total_pages": total_pages},
+    }
     return jsonify(body), 200

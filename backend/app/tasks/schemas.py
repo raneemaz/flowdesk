@@ -147,3 +147,25 @@ class UpdateTaskRequest(BaseModel):
             if self.start_date is not None and self.due_date is not None and self.due_date < self.start_date:
                 raise ValueError("due_date must not be before start_date")
         return self
+
+
+class CreateTaskCommentRequest(BaseModel):
+    """FD-030: body for POST /organizations/{id}/tasks/{task_id}/comments.
+    No max_length cap - TaskComment.body is an unbounded Text column
+    (FD-025), same treatment as Department.description elsewhere in
+    this project; min_length=1 only catches the empty-string case
+    before it reaches TaskComment.body's own @validates (which also
+    rejects whitespace-only)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    body: str = Field(min_length=1)
+
+
+class ListTaskCommentsQuery(BaseModel):
+    """Query-string params for GET /organizations/{id}/tasks/{task_id}/comments."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    page: int = Field(default=1, ge=1)
+    per_page: int = Field(default=20, ge=1, le=100)
