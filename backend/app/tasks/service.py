@@ -9,6 +9,7 @@ restricts is *which* tasks are visible at all, never which columns.
 a list-query row filter rather than a field-visibility filter.
 """
 
+import enum
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
 
@@ -355,5 +356,93 @@ def update_task_status(
             new_value=new_status.value,
         )
     )
+    db.session.commit()
+    return task
+
+
+# FD-029. Order matters: title is listed first so a blank-title
+# rejection (the one field whose model-level @validates can raise)
+# happens before any other field in the same request gets mutated -
+# nothing else in this tuple can fail once _validate_department and
+# the merged-date check below have already passed.
+_EDITABLE_FIELDS = (
+    "title",
+    "description",
+    "priority",
+    "department_id",
+    "start_date",
+    "due_date",
+    "estimated_hours",
+    "actual_hours",
+)
+
+
+def _history_str(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, enum.Enum):
+        return value.value
+    return str(value)
+
+
+def update_task(organization_id: uuid.UUID, task_id: uuid.UUID, fields: dict, *, actor_membership_id: uuid.UUID) -> Task:
+    """`fields` is the caller's `UpdateTaskRequest.model_dump(exclude_unset=True)`
+    - only keys actually present in the request body are applied.
+
+    Writes one TaskHistory row per field whose *stored* value actually
+    ends up changing - not one per key in `fields` - compared after
+    mutation (not before), so a value that only differs from the
+    current one by whitespace/representation (e.g. title's own
+    @validates strips it, or a Decimal sent with different trailing
+    zeros) correctly doesn't produce a spurious no-op history entry.
+    A request that changes nothing writes no history, same idempotent
+    convention assign_task/update_task_status already established.
+    """
+    task = get_task_or_404(organization_id, task_id)
+
+    if "department_id" in fields:
+        _validate_department(organization_id, fields["department_id"])
+
+    # Date validation against the *merged* state: a field this request
+    # doesn't touch keeps the task's current value, so changing only
+    # one of start_date/due_date is still checked against whichever
+    # one wasn't included here (CreateTaskRequest's equivalent check
+    # only ever had to compare two values *within* the same request,
+    # since there was no existing task yet).
+    resulting_start_date = fields["start_date"] if "start_date" in fields else task.start_date
+    resulting_due_date = fields["due_date"] if "due_date" in fields else task.due_date
+    if resulting_start_date is not None and resulting_due_date is not None and resulting_due_date < resulting_start_date:
+        raise APIError(
+            "due_date must not be before start_date.",
+            status_code=422,
+            code="INVALID_DATE_RANGE",
+            details={"due_date": "must not be before start_date"},
+        )
+
+    history_entries = []
+    for field in _EDITABLE_FIELDS:
+        if field not in fields:
+            continue
+        previous_value = getattr(task, field)
+        if field == "title":
+            _set_title(task, fields[field])
+        else:
+            setattr(task, field, fields[field])
+        new_value = getattr(task, field)
+        if new_value == previous_value:
+            continue
+        history_entries.append(
+            TaskHistory(
+                organization_id=organization_id,
+                task_id=task.id,
+                actor_membership_id=actor_membership_id,
+                event_type=f"{field}_changed",
+                previous_value=_history_str(previous_value),
+                new_value=_history_str(new_value),
+            )
+        )
+
+    if history_entries:
+        db.session.add_all(history_entries)
     db.session.commit()
     return task

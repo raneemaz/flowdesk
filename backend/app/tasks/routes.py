@@ -5,8 +5,14 @@ from app.auth.decorators import csrf_protect, login_required
 from app.authz.decorators import require_permission
 from app.authz.permissions import Permission
 from app.errors import APIError, validation_error_details
-from app.tasks.schemas import AssignTaskRequest, CreateTaskRequest, ListTasksQuery, UpdateTaskStatusRequest
-from app.tasks.service import assign_task, create_task, get_task, list_tasks, update_task_status
+from app.tasks.schemas import (
+    AssignTaskRequest,
+    CreateTaskRequest,
+    ListTasksQuery,
+    UpdateTaskRequest,
+    UpdateTaskStatusRequest,
+)
+from app.tasks.service import assign_task, create_task, get_task, list_tasks, update_task, update_task_status
 
 tasks_bp = Blueprint("tasks", __name__)
 
@@ -87,6 +93,33 @@ def get_task_detail(organization_id, task_id):
     task = get_task(organization_id, task_id, scope=g.permission_scope, caller_membership_id=g.current_membership.id)
 
     body = {"success": True, "message": "Task retrieved", "data": task.to_public_dict()}
+    return jsonify(body), 200
+
+
+@tasks_bp.route("/organizations/<uuid:organization_id>/tasks/<uuid:task_id>", methods=["PATCH"])
+@login_required
+@csrf_protect
+@require_permission(Permission.TASK_CREATE_ASSIGN)
+def patch_task(organization_id, task_id):
+    payload = request.get_json(silent=True)
+    if payload is None:
+        raise APIError("Request body must be valid JSON.", status_code=400, code="BAD_REQUEST")
+
+    try:
+        data = UpdateTaskRequest.model_validate(payload)
+    except ValidationError as exc:
+        raise APIError(
+            "Validation failed", status_code=422, code="VALIDATION_ERROR", details=validation_error_details(exc)
+        )
+
+    task = update_task(
+        organization_id,
+        task_id,
+        data.model_dump(exclude_unset=True),
+        actor_membership_id=g.current_membership.id,
+    )
+
+    body = {"success": True, "message": "Task updated", "data": task.to_public_dict()}
     return jsonify(body), 200
 
 

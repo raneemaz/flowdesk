@@ -1155,6 +1155,67 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      tags: [Tasks]
+      summary: Edit a task's fields
+      description: >
+        Requires TASK_CREATE_ASSIGN (full for Owner/Manager, none for
+        everyone else - same permission as creation/assignment, not
+        TASK_VIEW_UPDATE's assigned scope). Never accepts
+        assignee_membership_id or status (use /assign or /status
+        instead). Records a TaskHistory row per field whose stored
+        value actually changes.
+      operationId: patchOrganizationTask
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskRequest"
+      responses:
+        "200":
+          description: The updated task
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/TaskPublic"
+        "400":
+          description: Request body is not valid JSON
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller's TASK_CREATE_ASSIGN scope is none
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or the task is missing/cross-organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown field, null title/priority, invalid department_id, or due_date before start_date in the resulting merged state)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /organizations/{organization_id}/tasks/{task_id}/assign:
     parameters:
@@ -1658,6 +1719,46 @@ components:
         status:
           type: string
           enum: [to_do, in_progress, under_review, completed, cancelled]
+
+    UpdateTaskRequest:
+      type: object
+      description: >
+        Partial update - every field optional to include. Never
+        accepts assignee_membership_id or status (use /assign or
+        /status instead). title/priority may not be sent as null
+        (422 if they are); the rest may, to clear them.
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        department_id:
+          type: string
+          format: uuid
+          nullable: true
+        start_date:
+          type: string
+          format: date
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        estimated_hours:
+          type: string
+          description: Decimal string, 0 to 9999.99.
+          nullable: true
+        actual_hours:
+          type: string
+          description: Decimal string, 0 to 9999.99.
+          nullable: true
 
     TaskPublic:
       type: object

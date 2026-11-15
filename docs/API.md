@@ -473,14 +473,15 @@ membership in this organization and can't equal the target's own
 `membership_id` (`422 INVALID_MANAGER_MEMBERSHIP` otherwise, covering
 missing/cross-org/inactive/self-as-own-manager identically).
 
-## Tasks (FD-026, FD-027, FD-028)
+## Tasks (FD-026, FD-027, FD-028, FD-029)
 
 Centralized in `backend/app/tasks/`. Creation, retrieval, assignment/
-reassignment, and the status workflow so far - editing and deadline
-validation is FD-029, comments are FD-030, and history *retrieval* is
-FD-031, all separate future tasks. Assignment (FD-027) was the first
-action to actually record a `TaskHistory` row - creation (FD-026)
-deliberately doesn't; status changes (FD-028, below) are the second.
+reassignment, the status workflow, and general editing so far -
+comments are FD-030 and history *retrieval* is FD-031, both separate
+future tasks. Assignment (FD-027) was the first action to actually
+record a `TaskHistory` row - creation (FD-026) deliberately doesn't;
+status changes (FD-028) were the second, and editing (FD-029, below)
+is the third.
 
 **`POST /organizations/{organization_id}/tasks` - gated by
 `TASK_CREATE_ASSIGN`** (`full` for Owner/Manager, `none` for everyone
@@ -599,6 +600,47 @@ missing or cross-organization `task_id`. A real transition writes a
 `new_value` status strings, `actor_membership_id` the caller) - FR-012's
 "every change records actor + timestamp."
 
+**`PATCH /organizations/{organization_id}/tasks/{task_id}` - general
+editing, gated by `TASK_CREATE_ASSIGN`** (same permission as creation/
+assignment, **not** `TASK_VIEW_UPDATE`'s `assigned` scope). FR-011
+bundles "set deadline/priority/instructions" together with assignment
+itself ("Assignment: assign/reassign, set deadline/priority/
+instructions"), framing editing as the same administrative capability
+as assigning a task - distinct from status progression (FD-028),
+which is explicitly what the baseline matrix's "View/update own
+assigned task" row means for an assignee. An Employee/Accountant/
+CustomerSupport gets `403` here even when editing a task assigned to
+them.
+
+Body (partial update - only fields present are applied):
+`{"title"?: "...", "description"?: "...", "priority"?: "low"|"medium"|
+"high"|"urgent", "department_id"?: "uuid", "start_date"?: "YYYY-MM-DD",
+"due_date"?: "YYYY-MM-DD", "estimated_hours"?: "0.00"-"9999.99",
+"actual_hours"?: "0.00"-"9999.99"}`. **Never accepts
+`assignee_membership_id` or `status`** - both `422` (unknown field),
+steering the caller to `/assign`/`/status` instead. `title`/`priority`
+reject an explicit `null` (neither is "clearable"); the rest accept
+one. `department_id` is validated the same way as creation
+(`422 INVALID_DEPARTMENT` for missing/cross-org/inactive).
+
+**Date validation** checks both within the request (if `start_date`
+and `due_date` are both given together, same as creation) *and*
+against the task's **resulting merged state** - a request that only
+changes one of the two dates is still checked against whichever one
+it didn't touch (the task's existing value), `422 INVALID_DATE_RANGE`
+either way. This is the one validation FD-026's creation-time check
+couldn't need, since there was no existing task to merge against yet.
+
+**History on change**: one `TaskHistory` row **per field whose stored
+value actually changes** (`event_type: "<field>_changed"`, e.g.
+`title_changed`, `priority_changed`) - not one row per key in the
+request body. Compared *after* mutation, not before, so a value that
+only differs from the current one by representation (e.g. `title`'s
+own model-level whitespace-stripping) doesn't produce a spurious
+history entry for a field that didn't really change. A request that
+changes nothing is a `200` no-op with no history written at all, same
+convention `/assign`/`/status` already established.
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -625,6 +667,7 @@ missing or cross-organization `task_id`. A real transition writes a
 | GET | `/api/v1/organizations/{organization_id}/tasks/{task_id}` | View one task | FD-026 |
 | PATCH | `/api/v1/organizations/{organization_id}/tasks/{task_id}/assign` | Assign/reassign/unassign a task, recording history | FD-027 |
 | PATCH | `/api/v1/organizations/{organization_id}/tasks/{task_id}/status` | Move a task through its status workflow, recording history | FD-028 |
+| PATCH | `/api/v1/organizations/{organization_id}/tasks/{task_id}` | Edit a task's fields (not assignee/status), recording history | FD-029 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |
