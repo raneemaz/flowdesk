@@ -1,3 +1,4 @@
+from app.models.customer import Customer, CustomerStatus
 from app.models.department import Department, DepartmentStatus
 from app.models.employee_profile import EmployeeProfile, EmployeeStatus
 from app.models.invitation import Invitation
@@ -7,6 +8,8 @@ from app.models.task import Task, TaskComment, TaskHistory, TaskPriority, TaskSt
 from app.models.user import User, UserStatus
 
 __all__ = [
+    "Customer",
+    "CustomerStatus",
     "Department",
     "DepartmentStatus",
     "EmployeeProfile",

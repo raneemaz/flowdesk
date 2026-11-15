@@ -98,7 +98,9 @@ section), FD-032 (task frontend — list/board/calendar/My Tasks,
 assignment, comments, history; see `frontend/README.md`'s own section),
 and FD-033 (overdue detection — timezone-aware, excludes terminal
 statuses; see `docs/API.md`'s Tasks section) are Done, completing Epic
-E04 (Task Management and Workflows).
+E04 (Task Management and Workflows). FD-034 (Customer model —
+org-scoped, search indexes; see `docs/DATABASE.md`'s own section) is
+Done, the first task of Epic E05 (Customer and Request Management).
 
 ## Local development infrastructure
 

@@ -396,4 +396,52 @@ or history entry is organization history and survives either.
 (`cascade="all, delete-orphan"`), with `Task.history` ordered by
 `created_at` (chronological, per FD-031's own task title) -
 `test_task_relationship_exposes_its_history_in_chronological_order`
+proves it.
+
+### `customers` (FD-034)
+
+Fields per spec Section 10.1's Customer entity and FR-017. Model +
+migration only so far - CRUD, search, pagination, and archiving are
+FD-035, a separate future task.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK - **also** part of the composite unique constraint below |
+| `organization_id` | UUID | required, FK -> `organizations.id`, `ON DELETE CASCADE`, indexed |
+| `name` | varchar(255), indexed | required, non-blank (`@validates`) - the only required field (see below) |
+| `email` | varchar(320), nullable, indexed | no uniqueness constraint - unlike `users.email`, this carries no login identity |
+| `phone` | varchar(50), nullable, indexed | |
+| `company` | varchar(255), nullable, indexed | |
+| `address` | text, nullable | not indexed - free-form, not an expected FD-035 search target, same treatment as `organizations.address` |
+| `notes` | text, nullable | not indexed, same reasoning as `address` |
+| `status` | enum (`customer_status`) | `active` / `archived` - exists now so FD-036's `CustomerRequest`/future `Invoice` rows can reference an archived customer (Section 26's "archived customers stay linked to historical requests/invoices"); default `active` |
+| `created_at`, `updated_at` | timestamptz | |
+
+**Required-vs-optional is a judgment call** (not a Section 35 open
+decision): FR-017 marks only `company`/`address` "(opt.)", but nothing
+here rides on customer contact info the way `users.email` rides on
+login identity - a real small-business customer record routinely has
+only a phone *or* only an email on file. Only `name` is required,
+held to the same non-blank bar as every other named entity
+(`users.name`, `departments.name`, `tasks.title`).
+
+**`name`/`email`/`phone`/`company` are indexed** - the task's own
+title calls out "search indexes" explicitly, unlike the model-only
+tasks before it (FD-019/FD-020/FD-025), anticipating FD-035's search.
+Plain B-tree indexes, consistent with this codebase's existing
+convention (e.g. `users.email`) - no trigram/GIN indexing is used
+anywhere in this project, so none is introduced here either.
+
+**`UniqueConstraint(id, organization_id)`** - the same forward-looking
+composite key `tasks` (FD-025) and `employee_profiles` (FD-020) each
+added before *their* first org-scoped child table existed. FD-036's
+`CustomerRequest` will compose a same-organization-enforcing FK against
+this pair, the same way `task_comments`/`task_histories` do against
+`tasks`. `test_customer_id_organization_id_pair_must_be_unique` checks
+the constraint is actually declared.
+
+**Cascade behavior:** deleting an `Organization` **deletes** its
+customers (`CASCADE`) -
+`test_deleting_an_organization_cascades_to_its_customers` and the
+cross-tenant-isolation equivalent prove it.
 confirms rows inserted out of order still come back sorted.

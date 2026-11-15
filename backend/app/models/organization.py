@@ -46,6 +46,9 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
         "EmployeeProfile", back_populates="organization", cascade="all, delete-orphan", passive_deletes=True
     )
     tasks = relationship("Task", back_populates="organization", cascade="all, delete-orphan", passive_deletes=True)
+    customers = relationship(
+        "Customer", back_populates="organization", cascade="all, delete-orphan", passive_deletes=True
+    )
 
     @validates("name")
     def _normalize_name(self, key, value):
