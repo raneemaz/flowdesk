@@ -507,3 +507,28 @@ def list_task_comments(
     total = query.count()
     comments = query.order_by(TaskComment.created_at.asc()).offset((page - 1) * per_page).limit(per_page).all()
     return comments, total
+
+
+def list_task_history(
+    organization_id: uuid.UUID,
+    task_id: uuid.UUID,
+    *,
+    scope: PermissionScope,
+    caller_membership_id: uuid.UUID,
+    page: int,
+    per_page: int,
+) -> tuple[list[TaskHistory], int]:
+    """FD-031. No create function exists for TaskHistory, by design -
+    "append-only" here means every row is written as a side effect of
+    assign_task/update_task_status/update_task (FD-027/028/029), never
+    directly through an API call; this is purely the read side. Same
+    reach check as list_task_comments - a caller who can't view the
+    task can't see its history either. Chronological, oldest first,
+    same convention as the comments list and Task.history's own
+    order_by (FD-025)."""
+    task = get_task(organization_id, task_id, scope=scope, caller_membership_id=caller_membership_id)
+
+    query = db.session.query(TaskHistory).filter_by(organization_id=organization_id, task_id=task.id)
+    total = query.count()
+    entries = query.order_by(TaskHistory.created_at.asc()).offset((page - 1) * per_page).limit(per_page).all()
+    return entries, total

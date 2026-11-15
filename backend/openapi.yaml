@@ -1495,6 +1495,80 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/tasks/{task_id}/history:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: task_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Tasks]
+      summary: List a task's history, chronologically (read-only)
+      description: >
+        Requires TASK_VIEW_UPDATE, same reach check as the comments
+        and single-task endpoints. No corresponding POST - every row
+        is written as a side effect of /assign, /status, and the
+        general edit endpoint (FD-027/FD-028/FD-029), never created
+        directly. Ordered oldest first.
+      operationId: getOrganizationTaskHistory
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: A page of the task's history
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TaskHistoryPublic"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Task not assigned to an assigned-scope caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or the task is missing/cross-organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown query param or out-of-range page/per_page)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /health:
     get:
       tags: [Health]
@@ -1917,6 +1991,38 @@ components:
           nullable: true
         body:
           type: string
+        created_at:
+          type: string
+          format: date-time
+
+    TaskHistoryPublic:
+      type: object
+      description: >
+        event_type is a plain string, not a closed enum (FD-025's own
+        docstring explains why) - currently written values include
+        assignee_changed (FD-027) and <field>_changed for each editable
+        field, e.g. status_changed/title_changed/priority_changed
+        (FD-028/FD-029).
+      required: [id, task_id, actor_membership_id, event_type, previous_value, new_value, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        actor_membership_id:
+          type: string
+          format: uuid
+          nullable: true
+        event_type:
+          type: string
+        previous_value:
+          type: string
+          nullable: true
+        new_value:
+          type: string
+          nullable: true
         created_at:
           type: string
           format: date-time

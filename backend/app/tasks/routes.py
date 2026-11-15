@@ -10,6 +10,7 @@ from app.tasks.schemas import (
     CreateTaskCommentRequest,
     CreateTaskRequest,
     ListTaskCommentsQuery,
+    ListTaskHistoryQuery,
     ListTasksQuery,
     UpdateTaskRequest,
     UpdateTaskStatusRequest,
@@ -20,6 +21,7 @@ from app.tasks.service import (
     create_task_comment,
     get_task,
     list_task_comments,
+    list_task_history,
     list_tasks,
     update_task,
     update_task_status,
@@ -244,6 +246,36 @@ def get_task_comments(organization_id, task_id):
         "success": True,
         "message": "Comments retrieved",
         "data": [comment.to_public_dict() for comment in comments],
+        "meta": {"page": query.page, "per_page": query.per_page, "total": total, "total_pages": total_pages},
+    }
+    return jsonify(body), 200
+
+
+@tasks_bp.route("/organizations/<uuid:organization_id>/tasks/<uuid:task_id>/history", methods=["GET"])
+@login_required
+@require_permission(Permission.TASK_VIEW_UPDATE)
+def get_task_history(organization_id, task_id):
+    try:
+        query = ListTaskHistoryQuery.model_validate(request.args.to_dict())
+    except ValidationError as exc:
+        raise APIError(
+            "Validation failed", status_code=422, code="VALIDATION_ERROR", details=validation_error_details(exc)
+        )
+
+    entries, total = list_task_history(
+        organization_id,
+        task_id,
+        scope=g.permission_scope,
+        caller_membership_id=g.current_membership.id,
+        page=query.page,
+        per_page=query.per_page,
+    )
+    total_pages = (total + query.per_page - 1) // query.per_page if total else 0
+
+    body = {
+        "success": True,
+        "message": "History retrieved",
+        "data": [entry.to_public_dict() for entry in entries],
         "meta": {"page": query.page, "per_page": query.per_page, "total": total, "total_pages": total_pages},
     }
     return jsonify(body), 200

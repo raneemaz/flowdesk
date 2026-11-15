@@ -169,3 +169,15 @@ class ListTaskCommentsQuery(BaseModel):
 
     page: int = Field(default=1, ge=1)
     per_page: int = Field(default=20, ge=1, le=100)
+
+
+class ListTaskHistoryQuery(BaseModel):
+    """FD-031: query-string params for GET /organizations/{id}/tasks/{task_id}/history.
+    No filters - this task's own scope is "chronological, append-only"
+    retrieval, not a filtered query; event_type/date filtering isn't
+    asked for here and can be added later if a real need shows up."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    page: int = Field(default=1, ge=1)
+    per_page: int = Field(default=20, ge=1, le=100)

@@ -473,16 +473,20 @@ membership in this organization and can't equal the target's own
 `membership_id` (`422 INVALID_MANAGER_MEMBERSHIP` otherwise, covering
 missing/cross-org/inactive/self-as-own-manager identically).
 
-## Tasks (FD-026 through FD-030)
+## Tasks (FD-026 through FD-031)
 
 Centralized in `backend/app/tasks/`. Creation, retrieval, assignment/
-reassignment, the status workflow, general editing, and comments so
-far - history *retrieval* is FD-031, a separate future task.
-Assignment (FD-027) was the first action to actually record a
-`TaskHistory` row - creation (FD-026) deliberately doesn't; status
-changes (FD-028) were the second, editing (FD-029) the third. Comments
-(FD-030, below) don't write to `TaskHistory` at all - a comment *is*
-its own record (`TaskComment`), not a change to the task's own fields.
+reassignment, the status workflow, general editing, comments, and
+history retrieval - the full Task & Workflow Management module (spec
+Section 8 Module 3) is now built. Assignment (FD-027) was the first
+action to actually record a `TaskHistory` row - creation (FD-026)
+deliberately doesn't; status changes (FD-028) were the second, editing
+(FD-029) the third. Comments (FD-030) don't write to `TaskHistory` at
+all - a comment *is* its own record (`TaskComment`), not a change to
+the task's own fields. **There is no endpoint that creates a
+`TaskHistory` row directly** - FD-031 (below) is read-only by design;
+every row it returns was written as a side effect of FD-027/FD-028/
+FD-029's own actions.
 
 **`POST /organizations/{organization_id}/tasks` - gated by
 `TASK_CREATE_ASSIGN`** (`full` for Owner/Manager, `none` for everyone
@@ -664,6 +668,23 @@ task, `assigned` scope only on a task actually assigned to the caller.
 - No edit or delete endpoint - FD-030's own scope is posting and
   reading comments, not revising or removing them once posted.
 
+**`GET /organizations/{organization_id}/tasks/{task_id}/history` -
+gated by `TASK_VIEW_UPDATE`**, same object-level reach check as
+comments and the single-task view (`full` scope any task, `assigned`
+scope only a task assigned to the caller). **Read-only by design** -
+there is no corresponding `POST`; "append-only" means every row comes
+from assignment/status/editing's own side effects (FD-027/FD-028/
+FD-029), never a direct write through this endpoint. Paginated,
+ordered **chronologically, oldest first**, same convention as
+comments and `Task.history`'s own relationship ordering (FD-025). No
+filters (e.g. by `event_type`) - not asked for by this task, easy to
+add later if a real need shows up. Each entry is the raw
+`TaskHistory` row (`event_type`, `previous_value`/`new_value` as
+stored strings, `actor_membership_id`, `created_at`) - no resolved
+display names, consistent with how assignment/status/editing store
+these values (docs/DATABASE.md's `task_histories` section explains
+why `event_type` is a plain string rather than a closed enum).
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -693,6 +714,7 @@ task, `assigned` scope only on a task actually assigned to the caller.
 | PATCH | `/api/v1/organizations/{organization_id}/tasks/{task_id}` | Edit a task's fields (not assignee/status), recording history | FD-029 |
 | POST | `/api/v1/organizations/{organization_id}/tasks/{task_id}/comments` | Post a comment on a task | FD-030 |
 | GET | `/api/v1/organizations/{organization_id}/tasks/{task_id}/comments` | List a task's comments, chronologically | FD-030 |
+| GET | `/api/v1/organizations/{organization_id}/tasks/{task_id}/history` | List a task's history, chronologically (read-only) | FD-031 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |
