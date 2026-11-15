@@ -12,6 +12,7 @@ a list-query row filter rather than a field-visibility filter.
 import enum
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.authz.permissions import PermissionScope
 from app.authz.service import check_scope_allows
@@ -28,6 +29,12 @@ from app.models import (
     TaskPriority,
     TaskStatus,
 )
+
+# FD-033 (FR-016): "Completed" and "Cancelled" are the two terminal
+# statuses _STATUS_TRANSITIONS already treats as dead ends (no outgoing
+# edges) - a task that reached either one is simply finished, never
+# "overdue", no matter how far past its due date it is.
+TERMINAL_TASK_STATUSES = {TaskStatus.COMPLETED, TaskStatus.CANCELLED}
 
 
 def _validate_department(organization_id: uuid.UUID, department_id: uuid.UUID | None) -> None:
@@ -532,3 +539,46 @@ def list_task_history(
     total = query.count()
     entries = query.order_by(TaskHistory.created_at.asc()).offset((page - 1) * per_page).limit(per_page).all()
     return entries, total
+
+
+def _today_in_timezone(organization_timezone: str, *, now: datetime | None = None) -> date:
+    """FD-033: "today", for overdue purposes, is always the calling
+    organization's own local calendar date - never the server's (which
+    may run in any timezone) nor derived from `due_date` itself (a
+    plain `Date` with no zone of its own). `organization_timezone` is
+    `Organization.timezone` (FD-013, an IANA zone name defaulting to
+    "UTC") - validated as non-empty at the model level but never
+    checked against the real IANA database, so an unrecognized name
+    falls back to UTC rather than raising: this runs on every task
+    response and must never 500 a request over a stale/bad zone name it
+    can't fix here - `TypeError` is caught alongside `ZoneInfoNotFoundError`/
+    `ValueError` for the same reason, covering a non-string value
+    (e.g. `None`), even though the column itself is non-nullable today.
+    `now` is accepted explicitly (rather than always reading the wall
+    clock) purely so tests can pin the instant and exercise the
+    rollover boundary deterministically.
+    """
+    try:
+        tz = ZoneInfo(organization_timezone)
+    except (ZoneInfoNotFoundError, ValueError, TypeError):
+        tz = timezone.utc
+    reference = now if now is not None else datetime.now(timezone.utc)
+    return reference.astimezone(tz).date()
+
+
+def is_task_overdue(task: Task, organization_timezone: str, *, now: datetime | None = None) -> bool:
+    """FD-033 (FR-016): "due date passed and not Completed/Cancelled."
+    `due_date` is inclusive through its own day - a task due *today* in
+    the organization's timezone isn't overdue until tomorrow arrives."""
+    if task.due_date is None or task.status in TERMINAL_TASK_STATUSES:
+        return False
+    return task.due_date < _today_in_timezone(organization_timezone, now=now)
+
+
+def serialize_task(task: Task, organization_timezone: str, *, now: datetime | None = None) -> dict:
+    """Wraps `Task.to_public_dict()` with the one computed field FD-033
+    adds - kept out of the model itself (unlike every other field there,
+    which are plain columns) since it's a business rule, not stored
+    data, and depends on information (the organization's timezone) the
+    model has no business reaching for on its own."""
+    return {**task.to_public_dict(), "is_overdue": is_task_overdue(task, organization_timezone, now=now)}

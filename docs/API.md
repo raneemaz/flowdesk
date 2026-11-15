@@ -473,7 +473,7 @@ membership in this organization and can't equal the target's own
 `membership_id` (`422 INVALID_MANAGER_MEMBERSHIP` otherwise, covering
 missing/cross-org/inactive/self-as-own-manager identically).
 
-## Tasks (FD-026 through FD-031)
+## Tasks (FD-026 through FD-031, FD-033)
 
 Centralized in `backend/app/tasks/`. Creation, retrieval, assignment/
 reassignment, the status workflow, general editing, comments, and
@@ -487,6 +487,22 @@ the task's own fields. **There is no endpoint that creates a
 `TaskHistory` row directly** - FD-031 (below) is read-only by design;
 every row it returns was written as a side effect of FD-027/FD-028/
 FD-029's own actions.
+
+**`is_overdue` (FD-033, FR-016)** - a computed, read-only field present
+on every `Task` response (creation, list, single-task, edit, assign,
+status-change), not a stored column: `true` when `due_date` has passed
+**in the organization's own timezone** (`Organization.timezone`, an
+IANA zone name defaulting to `"UTC"` - FD-013) and `status` is neither
+`completed` nor `cancelled`; `false` in every other case, including no
+`due_date` at all. "Passed" is inclusive of the due date itself - a
+task due *today* isn't overdue until tomorrow, in the organization's
+own local calendar. An unrecognized `timezone` value falls back to UTC
+rather than erroring the request. Computed fresh on every response from
+the task's current `due_date`/`status` and the organization's current
+`timezone` - never cached, so completing or cancelling a task clears
+`is_overdue` in that same response, and nothing about it is written to
+`TaskHistory` (it isn't a field that changes by itself; it's a
+real-time judgment about two fields that already do).
 
 **`POST /organizations/{organization_id}/tasks` - gated by
 `TASK_CREATE_ASSIGN`** (`full` for Owner/Manager, `none` for everyone

@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 
 import pytest
 
@@ -409,3 +410,21 @@ def test_status_update_rejects_an_unknown_status_value(client, app):
     )
 
     assert response.status_code == 422
+
+
+def test_completing_a_past_due_task_clears_its_overdue_flag(client, app):
+    """FD-033: is_overdue is derived from live status, not cached - the
+    same response that reports the transition to `completed` must stop
+    reporting the task as overdue, in the same request."""
+    csrf_token = _register_and_login(client, "owner20@example.com")
+    org = _create_org(client, csrf_token)
+    owner_id = _membership_id(app, org["id"], "owner20@example.com")
+    task_id = _make_task(app, org["id"], owner_id, status=TaskStatus.UNDER_REVIEW, due_date=date(2020, 1, 1))
+
+    before = client.get(f"/api/v1/organizations/{org['id']}/tasks/{task_id}")
+    assert before.get_json()["data"]["is_overdue"] is True
+
+    response = _set_status(client, csrf_token, org["id"], task_id, "completed")
+
+    assert response.status_code == 200
+    assert response.get_json()["data"]["is_overdue"] is False

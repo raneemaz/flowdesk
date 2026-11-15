@@ -54,6 +54,9 @@ export function HomePage() {
                 Departments
               </Link>
             )}
+            <Link to="/tasks" className="hover:underline">
+              Tasks
+            </Link>
           </nav>
         </div>
       )}

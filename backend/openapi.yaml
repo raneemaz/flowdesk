@@ -2045,6 +2045,7 @@ components:
           estimated_hours,
           actual_hours,
           created_at,
+          is_overdue,
         ]
       properties:
         id:
@@ -2092,6 +2093,12 @@ components:
         created_at:
           type: string
           format: date-time
+        is_overdue:
+          type: boolean
+          description: >
+            FD-033 (computed, not stored): true when due_date has
+            passed in the organization's own timezone and status is
+            neither completed nor cancelled.
 
     EmployeePublic:
       type: object

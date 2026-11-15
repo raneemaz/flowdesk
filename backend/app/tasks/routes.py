@@ -23,6 +23,7 @@ from app.tasks.service import (
     list_task_comments,
     list_task_history,
     list_tasks,
+    serialize_task,
     update_task,
     update_task_status,
 )
@@ -58,7 +59,11 @@ def post_tasks(organization_id):
         estimated_hours=data.estimated_hours,
     )
 
-    body = {"success": True, "message": "Task created", "data": task.to_public_dict()}
+    body = {
+        "success": True,
+        "message": "Task created",
+        "data": serialize_task(task, g.current_membership.organization.timezone),
+    }
     return jsonify(body), 201
 
 
@@ -90,10 +95,11 @@ def get_tasks(organization_id):
     )
     total_pages = (total + query.per_page - 1) // query.per_page if total else 0
 
+    organization_timezone = g.current_membership.organization.timezone
     body = {
         "success": True,
         "message": "Tasks retrieved",
-        "data": [task.to_public_dict() for task in tasks],
+        "data": [serialize_task(task, organization_timezone) for task in tasks],
         "meta": {"page": query.page, "per_page": query.per_page, "total": total, "total_pages": total_pages},
     }
     return jsonify(body), 200
@@ -105,7 +111,11 @@ def get_tasks(organization_id):
 def get_task_detail(organization_id, task_id):
     task = get_task(organization_id, task_id, scope=g.permission_scope, caller_membership_id=g.current_membership.id)
 
-    body = {"success": True, "message": "Task retrieved", "data": task.to_public_dict()}
+    body = {
+        "success": True,
+        "message": "Task retrieved",
+        "data": serialize_task(task, g.current_membership.organization.timezone),
+    }
     return jsonify(body), 200
 
 
@@ -132,7 +142,11 @@ def patch_task(organization_id, task_id):
         actor_membership_id=g.current_membership.id,
     )
 
-    body = {"success": True, "message": "Task updated", "data": task.to_public_dict()}
+    body = {
+        "success": True,
+        "message": "Task updated",
+        "data": serialize_task(task, g.current_membership.organization.timezone),
+    }
     return jsonify(body), 200
 
 
@@ -159,7 +173,11 @@ def patch_task_assign(organization_id, task_id):
         assignee_membership_id=data.assignee_membership_id,
     )
 
-    body = {"success": True, "message": "Task assignee updated", "data": task.to_public_dict()}
+    body = {
+        "success": True,
+        "message": "Task assignee updated",
+        "data": serialize_task(task, g.current_membership.organization.timezone),
+    }
     return jsonify(body), 200
 
 
@@ -188,7 +206,11 @@ def patch_task_status(organization_id, task_id):
         new_status=data.status,
     )
 
-    body = {"success": True, "message": "Task status updated", "data": task.to_public_dict()}
+    body = {
+        "success": True,
+        "message": "Task status updated",
+        "data": serialize_task(task, g.current_membership.organization.timezone),
+    }
     return jsonify(body), 200
 
 

@@ -92,10 +92,13 @@ FD-027 (task assignment/reassignment — validated assignee, history),
 FD-028 (task status workflow — To Do → In Progress → Under Review →
 Completed, Cancelled terminal), FD-029 (task editing & deadlines —
 date validation, history on change), FD-030 (task comments —
-access-restricted, author + timestamp), and FD-031 (task history —
+access-restricted, author + timestamp), FD-031 (task history —
 chronological, append-only, read-only; see `docs/API.md`'s Tasks
-section) are Done, completing Epic E04 (Task & Workflow Management);
-no other feature pages exist yet.
+section), FD-032 (task frontend — list/board/calendar/My Tasks,
+assignment, comments, history; see `frontend/README.md`'s own section),
+and FD-033 (overdue detection — timezone-aware, excludes terminal
+statuses; see `docs/API.md`'s Tasks section) are Done, completing Epic
+E04 (Task Management and Workflows).
 
 ## Local development infrastructure
 

@@ -261,6 +261,119 @@ manual pass; `/departments` shows the access-denied state directly for
 the Employee account, and its nav link is hidden on `HomePage` for that
 role.
 
+## Task frontend - list/board/calendar/My Tasks, assignment, comments, history (FD-032)
+
+- **No new backend calls** - this task is pure frontend, consuming the
+  already-reviewed FD-026 through FD-031 endpoints (`app/tasks/`) as-is.
+  `api/tasks.ts` adds the usual thin wrapper functions (`listTasks`,
+  `getTask`, `createTask`, `updateTask`, `assignTask`, `updateTaskStatus`,
+  `listTaskComments`, `createTaskComment`, `listTaskHistory`), all scoped
+  by the current organization's id from `OrganizationContext` - never a
+  user-editable value.
+- **`TasksNav`** - shared tab bar (List/Board/Calendar/My Tasks) reused
+  by all four pages, consistent with how `HomePage`'s own nav works.
+  `HomePage` gained an unconditional "Tasks" link (unlike "Departments",
+  every role can see *some* task list, even if the backend's own
+  `assigned`-scope restriction means an Employee's lists only ever show
+  their own tasks).
+- **`TaskListView`** - the shared list/filter/inline-create component
+  behind both `TaskListPage` (`/tasks`) and `MyTasksPage` (`/tasks/mine`),
+  parameterized by `{title, lockedAssigneeId?}` so `MyTasksPage` is a
+  thin wrapper that locks the assignee filter to the viewer's own
+  membership instead of duplicating the list UI.
+- **Resolving "my own membership_id"** - `MembershipPublic` (from
+  `OrganizationContext`) never exposes the viewer's own membership id
+  directly. For a non-manager, this is a non-problem: reaching a task's
+  detail page at all already proves assignee status (the backend's
+  `TASK_VIEW_UPDATE` `assigned` scope would 403 otherwise), and the list
+  pages lean entirely on the backend's own `assigned`-scope
+  auto-restriction rather than filtering client-side. The one case that
+  still needs it - an Owner/Manager viewing `/tasks/mine` - resolves it
+  by matching the logged-in user's `email` against the employee
+  directory response (`EMPLOYEE_DIRECTORY_VIEW` never grants `none`, so
+  `name`/`email` are always available), never by trusting anything
+  client-supplied.
+- **`TaskBoardPage`** (`/tasks/board`) - Kanban columns grouped by
+  `STATUS_ORDER`, with click-based "move to" buttons instead of
+  drag-and-drop (a deliberate scope simplification, not a Section 35
+  item). Each button is gated by `statusOptionsFor` - a **UI-only hint**
+  mirroring the backend's `_STATUS_TRANSITIONS`/
+  `_ASSIGNEE_ALLOWED_TRANSITIONS` tables (`app/tasks/service.py`) exactly
+  - so a non-manager assignee only ever sees the one or two
+  forward-progress moves they're actually allowed, never the manager-only
+  ones (e.g. `cancelled`).
+- **`TaskCalendarPage`** (`/tasks/calendar`) - a custom month grid (plain
+  `Date` arithmetic, 42 cells) rather than pulling in a calendar library;
+  Prev/Next re-fetch with the new month's due-date range. Board and
+  Calendar both fetch up to 100 tasks unpaginated - an accepted
+  limitation at this project's seed-data scale, confirmed by the
+  reviewer to still be organization-scoped (never a global fetch) and
+  not an avenue into unauthorized data, just a UX cap worth revisiting if
+  a real org's task count grows past it.
+- **`TaskDetailPage`** (`/tasks/:taskId`) - view/edit/assign/status/
+  comments/history in one page. Edit, Assignee select, and the status
+  "Move to" buttons are all gated by `canManageTasks`/`statusOptionsFor`
+  (UI hints only - the backend independently re-validates every field on
+  every write, per spec Section 32's "never trust frontend role checks
+  as authorization"). A single `invalidateTask()` helper refetches both
+  the task query and its history query together, since editing,
+  assigning, *and* changing status can each write a `TaskHistory` row
+  (FD-027/FD-028/FD-029) - invalidating only one of the two left history
+  stale after an assignment until some other action happened to refresh
+  it (see bugs below).
+- **`features/tasks/permissions.ts`** - `canManageTasks` mirrors
+  `TASK_CREATE_ASSIGN`; `legalNextStatuses`/`statusOptionsFor` mirror
+  `_STATUS_TRANSITIONS`/`_ASSIGNEE_ALLOWED_TRANSITIONS` line for line.
+  Reviewed by `tenant-security-reviewer`: every API call is
+  organization-scoped from context, no component trusts a task's own
+  embedded fields (or anything else client-supplied) for an authorization
+  decision, and no request body ever smuggles in a field the current UI
+  hides.
+
+**Two real bugs found and fixed during live-browser verification**
+(neither caught by the unit tests, which mock every API call and so
+never exercise the real interaction between two mutations' cache scope,
+or the real shape of a raw backend response):
+
+1. **Stale history after assigning.** `onAssign` originally invalidated
+   only the task query, not the history query, so the History section
+   kept showing "No history yet." after an assignment even though the
+   backend had already written the `assignee_changed` row - the next
+   unrelated action (e.g. a status change) would refetch history and
+   suddenly show both entries at once. Fixed by consolidating all three
+   mutation paths onto the shared `invalidateTask()` helper above.
+2. **Raw, unresolved history text.** History entries render
+   `previous_value`/`new_value` exactly as the backend stores them - raw
+   `membership_id` UUIDs for `assignee_changed`, raw enum values for
+   `status_changed`/`priority_changed` (`docs/API.md`'s Tasks section) -
+   so the page originally showed strings like "changed assignee changed
+   from — to 0b696a82-...". Fixed with a `describeHistoryValue()` helper
+   that resolves assignee ids via the already-fetched employee map and
+   enum values via the existing label maps, plus stripping the
+   `_changed` suffix from `event_type` before building the sentence.
+
+**Verified against the real backend in a real browser**, as both the
+Owner and a freshly-added Employee-role member of the same organization:
+creating a task from the List page; the Board page's click-to-move
+buttons (confirmed the Owner sees every legal move while the Employee
+assignee sees only the forward-progress ones); the Calendar page's
+month navigation and a task landing on its due-date cell; editing a
+task's fields (title, priority, dates, estimated/actual hours) and
+confirming the save persists and appears in History; assigning a task
+and posting a comment; `My Tasks` for the Owner (resolved via the
+directory email-match) and for the Employee (backed entirely by the
+server's own `assigned`-scope restriction, no client-side filtering
+needed); and, on `HomePage`, that "Departments" is hidden but "Tasks" is
+shown for the Employee role, and that `/tasks`, `/tasks/board`,
+`/tasks/calendar`, and `/tasks/mine` all correctly show only that
+Employee's own assigned task. One environmental snag during this pass
+was not a product bug: a long debugging session's full-page reloads
+left the in-memory CSRF token (`AuthContext`, FD-017) desynced from
+`sessionStorage` for one tab, which made every mutation's existing
+`if (!csrfToken) return;` guard silently no-op - re-logging in restored
+it immediately, and a real user never hits this outside of this kind of
+heavy manual reload-testing.
+
 ## Setup
 
 ```bash

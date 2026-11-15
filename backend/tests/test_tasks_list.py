@@ -1,9 +1,10 @@
 import uuid
+from datetime import date, datetime, timezone
 
 import pytest
 
 from app.extensions import db
-from app.models import Department, Membership, MembershipRole, MembershipStatus, Organization, Task, User
+from app.models import Department, Membership, MembershipRole, MembershipStatus, Organization, Task, TaskStatus, User
 
 
 @pytest.fixture(autouse=True)
@@ -274,3 +275,86 @@ def test_rejects_an_inverted_due_date_range(client):
     response = _list_tasks(client, org["id"], due_date_from="2026-06-01", due_date_to="2026-01-01")
 
     assert response.status_code == 422
+
+
+def test_list_marks_a_past_due_non_terminal_task_as_overdue(client, app):
+    """FD-033. due_date is a day safely in the past in every timezone,
+    so this doesn't need to pin the clock - it only needs the task to
+    actually have a stored due_date that's passed."""
+    csrf_token = _register_and_login(client, "owner10@example.com")
+    org = _create_org(client, csrf_token)
+    with app.app_context():
+        user = db.session.query(User).filter_by(email="owner10@example.com").one()
+        membership = db.session.query(Membership).filter_by(user_id=user.id, organization_id=org["id"]).one()
+        owner_membership_id = str(membership.id)
+
+    _make_task(app, org["id"], owner_membership_id, title="Overdue", due_date=date(2020, 1, 1))
+    _make_task(app, org["id"], owner_membership_id, title="No due date")
+
+    response = _list_tasks(client, org["id"])
+
+    assert response.status_code == 200
+    by_title = {t["title"]: t["is_overdue"] for t in response.get_json()["data"]}
+    assert by_title == {"Overdue": True, "No due date": False}
+
+
+def test_list_never_marks_a_completed_or_cancelled_task_as_overdue(client, app):
+    csrf_token = _register_and_login(client, "owner11@example.com")
+    org = _create_org(client, csrf_token)
+    with app.app_context():
+        user = db.session.query(User).filter_by(email="owner11@example.com").one()
+        membership = db.session.query(Membership).filter_by(user_id=user.id, organization_id=org["id"]).one()
+        owner_membership_id = str(membership.id)
+
+    _make_task(
+        app, org["id"], owner_membership_id, title="Done", due_date=date(2020, 1, 1), status=TaskStatus.COMPLETED
+    )
+    _make_task(
+        app, org["id"], owner_membership_id, title="Scrapped", due_date=date(2020, 1, 1), status=TaskStatus.CANCELLED
+    )
+
+    response = _list_tasks(client, org["id"])
+
+    assert response.status_code == 200
+    by_title = {t["title"]: t["is_overdue"] for t in response.get_json()["data"]}
+    assert by_title == {"Done": False, "Scrapped": False}
+
+
+def test_overdue_detection_uses_the_organizations_own_timezone_not_utc(client, app, monkeypatch):
+    """At the pinned instant 2026-11-11T02:00:00Z, America/New_York
+    (UTC-5, standard time) is still on 2026-11-10 while UTC itself has
+    already rolled over to 2026-11-11. A due_date of 2026-11-10 is
+    therefore still "today" - not overdue - for this organization, and
+    would be wrongly flagged overdue by any implementation that
+    compared against UTC's own date instead of the organization's.
+    Freezes app.tasks.service's own `datetime.now()` (no new test
+    dependency) so this is deterministic regardless of when the suite
+    actually runs."""
+    import app.tasks.service as tasks_service
+
+    class _FrozenDateTime(datetime):
+        FIXED = datetime(2026, 11, 11, 2, 0, tzinfo=timezone.utc)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.FIXED.astimezone(tz) if tz is not None else cls.FIXED
+
+    monkeypatch.setattr(tasks_service, "datetime", _FrozenDateTime)
+
+    csrf_token = _register_and_login(client, "owner12@example.com")
+    org = client.post(
+        "/api/v1/organizations",
+        json={"name": "NY Org", "timezone": "America/New_York"},
+        headers={"X-CSRF-Token": csrf_token},
+    ).get_json()["data"]
+    with app.app_context():
+        user = db.session.query(User).filter_by(email="owner12@example.com").one()
+        membership = db.session.query(Membership).filter_by(user_id=user.id, organization_id=org["id"]).one()
+        owner_membership_id = str(membership.id)
+
+    _make_task(app, org["id"], owner_membership_id, title="Due today in NY", due_date=date(2026, 11, 10))
+
+    response = _list_tasks(client, org["id"])
+
+    assert response.status_code == 200
+    assert response.get_json()["data"][0]["is_overdue"] is False
