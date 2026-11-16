@@ -1048,6 +1048,65 @@ running ledger) - same convention as comments/history lists
 elsewhere. `404` if the invoice doesn't exist or belongs to a
 different organization.
 
+## Financial reports (FD-044)
+
+Added to `backend/app/invoices/` (FR-028/FR-029) rather than a new
+domain package - a financial summary is purely an aggregate view over
+`Invoice`/`Payment` data already owned by this module, and the
+spec's own suggested repository layout (Section 9.3) has no separate
+slot for it; the broader cross-entity analytics service (tasks,
+requests, employees, *and* finance together) is FD-051/FD-052's own
+future `analytics` domain, not this one.
+
+**`GET /organizations/{organization_id}/invoices/financial-summary`**
+- gated by **`require_permission(Permission.FINANCIAL_REPORTS_VIEW)`**,
+deliberately **not** `INVOICE_PAYMENT_MANAGE` (the permission every
+other endpoint in this module uses) - FR-029 ("only Owner and
+authorized financial roles see sensitive financial data") names
+*financial reports* as its own restriction target. Both permissions
+happen to be `full` for Owner/Accountant and `none` for everyone else
+in today's matrix, but using the semantically correct one means a
+future role change to either doesn't silently affect the other.
+
+Query params: `period_start`/`period_end` (optional, must be given
+**together** or not at all, `422` if only one is present or the range
+is inverted) - defaults to the **current calendar month** in the
+organization's own timezone when omitted. This is deliberately not
+the full FR-034 date-filter taxonomy (last 7/30/90 days, arbitrary
+custom ranges) - that belongs to FD-052's Analytics API; this
+endpoint only overrides the one period-scoped metric below.
+
+Response `data`:
+- **`total_invoiced`** / **`total_collected`** / **`outstanding_balance`**
+  - all-time cumulative, not period-scoped (FR-028's own wording
+  singles out only "monthly revenue collected" as period-scoped).
+  `total_invoiced` sums every invoice ever actually issued and not
+  voided (`sent`/`partially_paid`/`overdue`/`paid`) - a `draft` was
+  never billed, and a `cancelled` invoice is withdrawn billing, not
+  revenue. `outstanding_balance` = `total_invoiced - total_collected`,
+  exact rather than approximate: every `Payment` in an organization
+  is necessarily attached to an invoice in that same status set (a
+  payment can only ever be recorded against
+  `sent`/`partially_paid`/`overdue`, per FD-043, and a full payment
+  only ever advances one of those to `paid` - also in the set), so
+  the two sums are always over consistent underlying invoices.
+- **`overdue_invoice_count`** - computed *after* the same lazy
+  overdue auto-refresh `GET .../invoices` already applies (FD-042),
+  so this is never stale.
+- **`monthly_revenue_collected`** - sum of `Payment.amount` where
+  `payment_date` (not `created_at` - when the money was dated, not
+  when the record was entered) falls within `period_start`/
+  `period_end` inclusive.
+- **`recent_payments`** - the latest 10 payments across the whole
+  organization (not paginated/filterable - a dashboard widget, not a
+  payments browser; drill into one invoice's full history via
+  `GET .../invoices/{id}/payments` instead), newest first.
+
+All four money fields are decimal strings, computed purely from
+already-server-computed `Invoice.total`/`Payment.amount` - there is
+no request-body total anywhere in this read-only endpoint for a
+client to even attempt to override.
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -1099,6 +1158,7 @@ different organization.
 | PATCH | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/cancel` | Cancel an invoice (not once a payment is recorded) | FD-042 |
 | POST | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/payments` | Record a payment (idempotent, rejects overpayment) | FD-043 |
 | GET | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/payments` | List an invoice's payments, chronologically | FD-043 |
+| GET | `/api/v1/organizations/{organization_id}/invoices/financial-summary` | Invoiced/collected/outstanding, overdue count, monthly revenue, recent payments | FD-044 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |

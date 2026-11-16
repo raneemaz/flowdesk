@@ -769,3 +769,16 @@ treatment here (unlike `task_histories`/`request_histories`) - both
 tables use the standard `TimestampMixin`, since a line item or a
 recorded payment, unlike a history entry, isn't itself an audit-trail
 row describing a change to something else.
+
+**FD-044's financial summary** (`GET .../invoices/financial-summary`,
+`app.invoices.service.get_financial_summary`) is a pure read-time
+aggregation over these two tables - no new column or table of its
+own. It leans directly on the status reasoning above: every `Payment`
+row's invoice is, by construction, in one of the statuses a payment
+can ever be recorded against (`sent`/`partially_paid`/`overdue`) or
+the one a full payment advances it to (`paid`) - all four are
+"ever billed" statuses - so `outstanding_balance` can be computed as
+a plain `total_invoiced - total_collected` subtraction of two
+independently-summed totals, exactly, rather than needing to sum each
+invoice's own `(total - amount_paid)` individually. See
+`docs/API.md`'s Financial reports section for the full field list.

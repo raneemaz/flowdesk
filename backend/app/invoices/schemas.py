@@ -120,3 +120,25 @@ class UpdateInvoiceRequest(BaseModel):
         ):
             raise ValueError("discount_value must not exceed 100 when discount_type is percentage")
         return self
+
+
+class FinancialSummaryQuery(BaseModel):
+    """FD-044: query-string params for GET .../invoices/financial-summary.
+    `period_start`/`period_end` (only the monthly_revenue_collected
+    metric's own window - see app.invoices.service.get_financial_summary's
+    own docstring) must be given together or not at all; omitted
+    entirely, they default to the current calendar month in the
+    organization's own timezone."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    period_start: date | None = None
+    period_end: date | None = None
+
+    @model_validator(mode="after")
+    def _period_bounds_are_given_together_and_not_inverted(self):
+        if (self.period_start is None) != (self.period_end is None):
+            raise ValueError("period_start and period_end must be given together")
+        if self.period_start is not None and self.period_end is not None and self.period_start > self.period_end:
+            raise ValueError("period_start must not be after period_end")
+        return self

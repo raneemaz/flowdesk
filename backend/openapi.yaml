@@ -2539,6 +2539,74 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/invoices/financial-summary:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Invoices]
+      summary: Invoiced/collected/outstanding totals, overdue count, monthly revenue, recent payments
+      description: >
+        Requires FINANCIAL_REPORTS_VIEW (full for Owner/Accountant
+        only) - deliberately not INVOICE_PAYMENT_MANAGE, which every
+        other endpoint in this module uses; FR-029 names financial
+        *reports* as its own restriction target. Refreshes overdue
+        statuses first (same lazy mechanism as GET .../invoices), so
+        overdue_invoice_count is never stale. total_invoiced/
+        total_collected/outstanding_balance are all-time cumulative;
+        monthly_revenue_collected is the one period-scoped metric
+        (period_start/period_end default to the current calendar
+        month in the organization's own timezone - this is not the
+        full FD-052 date-filter taxonomy, just one override).
+      operationId: getOrganizationInvoicesFinancialSummary
+      parameters:
+        - name: period_start
+          in: query
+          schema: { type: string, format: date }
+        - name: period_end
+          in: query
+          schema: { type: string, format: date }
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Financial summary retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/FinancialSummaryPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without FINANCIAL_REPORTS_VIEW
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (period_start/period_end given alone instead of together, or an inverted range)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /organizations/{organization_id}/invoices/{invoice_id}:
     parameters:
       - name: organization_id
@@ -4001,6 +4069,49 @@ components:
           type: string
         balance_due:
           type: string
+
+    FinancialSummaryPublic:
+      type: object
+      description: >
+        total_invoiced/total_collected/outstanding_balance are
+        all-time cumulative; monthly_revenue_collected is the one
+        period-scoped metric, for the window named by period_start/
+        period_end (see the GET .../invoices/financial-summary
+        endpoint's own description).
+      required:
+        [
+          total_invoiced,
+          total_collected,
+          outstanding_balance,
+          overdue_invoice_count,
+          period_start,
+          period_end,
+          monthly_revenue_collected,
+          recent_payments,
+        ]
+      properties:
+        total_invoiced:
+          type: string
+        total_collected:
+          type: string
+        outstanding_balance:
+          type: string
+        overdue_invoice_count:
+          type: integer
+          minimum: 0
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        monthly_revenue_collected:
+          type: string
+        recent_payments:
+          type: array
+          description: The latest 10 payments across the organization, newest first.
+          items:
+            $ref: "#/components/schemas/PaymentPublic"
 
     LineItemInput:
       type: object

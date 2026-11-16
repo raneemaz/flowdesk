@@ -32,7 +32,7 @@ rather than guessed:
 """
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -41,7 +41,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.errors import APIError
 from app.extensions import db
-from app.models import Customer, CustomerStatus, DiscountType, Invoice, InvoiceLineItem, InvoiceStatus
+from app.models import Customer, CustomerStatus, DiscountType, Invoice, InvoiceLineItem, InvoiceStatus, Payment
 
 _CENT = Decimal("0.01")
 
@@ -503,3 +503,138 @@ def cancel_invoice(organization_id: uuid.UUID, invoice_id: uuid.UUID) -> Invoice
     invoice.status = InvoiceStatus.CANCELLED
     db.session.commit()
     return invoice
+
+
+# ---------------------------------------------------------------------------
+# FD-044: financial API & reports (FR-028/FR-029). Gated by
+# `Permission.FINANCIAL_REPORTS_VIEW` - deliberately NOT the same
+# permission as the rest of this module (`INVOICE_PAYMENT_MANAGE`),
+# even though both happen to be `full` for Owner/Accountant and `none`
+# for everyone else in today's matrix. FR-029 ("only Owner and
+# authorized financial roles see sensitive financial data") names
+# *financial reports* as its own restriction target, distinct from
+# day-to-day invoice/payment management - using the semantically
+# correct permission here means a future role change to either one
+# doesn't silently affect the other.
+#
+# Scope judgment calls (not Section 35 items, not money-integrity
+# ambiguities - ordinary reporting-definition choices, documented
+# rather than asked about):
+# - `total_invoiced` counts every invoice that was ever actually
+#   issued and not voided (`sent`/`partially_paid`/`overdue`/`paid`) -
+#   a `draft` was never billed to anyone, and a `cancelled` invoice
+#   represents withdrawn billing, not real revenue.
+# - `total_collected`/`outstanding_balance` are all-time cumulative
+#   totals; `monthly_revenue_collected` is the one period-scoped
+#   metric, exactly matching FR-028's own wording ("total invoiced,
+#   total collected, outstanding balance, overdue invoices, *monthly*
+#   revenue collected, recent payments").
+# - The full FR-034 date-filter taxonomy (last 7/30/90 days, custom
+#   range, etc.) is deliberately NOT built here - that's FD-052's
+#   (Analytics API) job. This endpoint only accepts an optional
+#   `period_start`/`period_end` override for the one period-scoped
+#   metric, defaulting to the current calendar month in the
+#   organization's own timezone.
+# - `recent_payments` is a fixed-size list (not a paginated/filterable
+#   endpoint of its own) - a dashboard widget, not a payments browser;
+#   a caller wanting more belongs at the per-invoice
+#   `GET .../invoices/{id}/payments` endpoint (FD-043) instead.
+# ---------------------------------------------------------------------------
+
+# Mirrors _OVERDUE_ELIGIBLE_STATUSES's own reasoning but for the
+# reporting question "was this invoice ever actually billed" rather
+# than "could this invoice still become overdue" - `paid` belongs here
+# (it was billed and fully collected) but not in the overdue set
+# (it can never become overdue again).
+_EVER_INVOICED_STATUSES = (InvoiceStatus.SENT, InvoiceStatus.PARTIALLY_PAID, InvoiceStatus.OVERDUE, InvoiceStatus.PAID)
+
+_RECENT_PAYMENTS_LIMIT = 10
+
+
+def _sum_decimal(query) -> Decimal:
+    result = query.scalar()
+    return result if result is not None else Decimal("0.00")
+
+
+def _current_month_bounds(organization_timezone: str, *, now: datetime | None = None) -> tuple[date, date]:
+    today = _today_in_timezone(organization_timezone, now=now)
+    period_start = today.replace(day=1)
+    if today.month == 12:
+        next_month_start = today.replace(year=today.year + 1, month=1, day=1)
+    else:
+        next_month_start = today.replace(month=today.month + 1, day=1)
+    period_end = next_month_start - timedelta(days=1)
+    return period_start, period_end
+
+
+def get_financial_summary(
+    organization_id: uuid.UUID,
+    organization_timezone: str,
+    *,
+    period_start: date | None = None,
+    period_end: date | None = None,
+    now: datetime | None = None,
+) -> dict:
+    """FD-044 (FR-028). Refreshes overdue statuses first (FD-042) so
+    `overdue_invoice_count` reflects reality even if nothing has
+    `GET`/listed this organization's invoices recently. `period_start`/
+    `period_end` must be given together or not at all - defaulting to
+    the current calendar month when omitted (see module-level comment
+    above for why this isn't the full FD-052 date-filter taxonomy)."""
+    _refresh_overdue_invoices(organization_id, organization_timezone, now=now)
+
+    if period_start is None and period_end is None:
+        period_start, period_end = _current_month_bounds(organization_timezone, now=now)
+
+    total_invoiced = _sum_decimal(
+        db.session.query(func.sum(Invoice.total)).filter(
+            Invoice.organization_id == organization_id, Invoice.status.in_(_EVER_INVOICED_STATUSES)
+        )
+    )
+    total_collected = _sum_decimal(
+        db.session.query(func.sum(Payment.amount)).filter(Payment.organization_id == organization_id)
+    )
+    # Always correct, not just approximately so: every Payment in this
+    # organization was necessarily recorded against an invoice that
+    # was, at the time, in a payable status (app.payments.service's
+    # own _PAYABLE_STATUSES - sent/partially_paid/overdue), and every
+    # one of those statuses - plus the paid status a full payment
+    # advances it to - is already in _EVER_INVOICED_STATUSES above. So
+    # total_collected is always a subset of total_invoiced's own
+    # underlying invoices, and this subtraction is exact, never an
+    # approximation that could drift from summing each invoice's own
+    # (total - amount_paid) individually.
+    outstanding_balance = total_invoiced - total_collected
+
+    overdue_invoice_count = (
+        db.session.query(func.count(Invoice.id))
+        .filter(Invoice.organization_id == organization_id, Invoice.status == InvoiceStatus.OVERDUE)
+        .scalar()
+    )
+
+    monthly_revenue_collected = _sum_decimal(
+        db.session.query(func.sum(Payment.amount)).filter(
+            Payment.organization_id == organization_id,
+            Payment.payment_date >= period_start,
+            Payment.payment_date <= period_end,
+        )
+    )
+
+    recent_payments = (
+        db.session.query(Payment)
+        .filter(Payment.organization_id == organization_id)
+        .order_by(Payment.created_at.desc())
+        .limit(_RECENT_PAYMENTS_LIMIT)
+        .all()
+    )
+
+    return {
+        "total_invoiced": total_invoiced,
+        "total_collected": total_collected,
+        "outstanding_balance": outstanding_balance,
+        "overdue_invoice_count": overdue_invoice_count,
+        "period_start": period_start,
+        "period_end": period_end,
+        "monthly_revenue_collected": monthly_revenue_collected,
+        "recent_payments": recent_payments,
+    }
