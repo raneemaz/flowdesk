@@ -186,6 +186,17 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
             raise ValueError("invoice_number must not be empty")
         return normalized
 
+    @validates("currency")
+    def _normalize_currency(self, key, value):
+        # FD-042: added once this column got its first real write path
+        # (create/update invoice) - mirrors Organization._normalize_currency
+        # (FD-012) exactly, so the same ISO 4217 shape is enforced
+        # wherever a currency code is stored.
+        normalized = (value or "").strip().upper()
+        if len(normalized) != 3:
+            raise ValueError("currency must be a 3-letter ISO 4217 code")
+        return normalized
+
     def to_public_dict(self) -> dict:
         return {
             "id": str(self.id),
@@ -273,17 +284,31 @@ class InvoiceLineItem(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
 
 
 class Payment(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
-    """FD-040. Fields per spec Section 10.1's Payment entity and
+    """FD-040/FD-043. Fields per spec Section 10.1's Payment entity and
     FR-026. "Payments are separate records, never edits to the original
     total" (the spec's own "Important invoice rule") - recording and
     validating a payment (amount never exceeding the outstanding
-    balance, idempotency) is FD-043's job; this task only defines the
-    columns.
+    balance, idempotency) is FD-043's job; FD-040 only defined the
+    original columns.
 
     `method` is a plain string, not a closed enum - FR-026 never
     enumerates payment methods anywhere, the same "no implied fixed
     set, and FlowDesk is meant to be generic across industries"
     reasoning `CustomerRequest.category` (FD-036) already used.
+
+    `idempotency_key` (FD-043, at the user's explicit direction over a
+    server-side duplicate-detection heuristic) is how Section 13's
+    mandatory "duplicate payment request -> no duplicate transaction
+    created" scenario is satisfied: the client supplies one per
+    attempt, and a retry with the same key returns the original
+    `Payment` instead of inserting a second row - see
+    `app.payments.service.record_payment`. Required (not optional) -
+    an idempotency scheme only works if every caller actually
+    participates in it. Unique **per organization**, not per-invoice -
+    a key represents one client-side operation attempt, and reusing
+    one across two different invoices is itself a client bug this
+    schema catches (`422`/`409`, see `record_payment`), not a scope
+    this column should silently allow.
     """
 
     __tablename__ = "payments"
@@ -300,6 +325,7 @@ class Payment(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
             ["memberships.id", "memberships.organization_id"],
             name="fk_payments_recorded_by_organization_id",
         ),
+        UniqueConstraint("organization_id", "idempotency_key", name="uq_payments_organization_id_idempotency_key"),
     )
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
@@ -311,6 +337,7 @@ class Payment(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
     method: Mapped[str] = mapped_column(String(50), nullable=False)
     reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
     # NOT NULL, no ORM-column-level FK (the composite ForeignKeyConstraint
     # above covers it) - who recorded a payment is audit-relevant
     # financial history (Section 10.3 rule #5), same RESTRICT reasoning
@@ -327,6 +354,13 @@ class Payment(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
             raise ValueError("method must not be empty")
         return normalized
 
+    @validates("idempotency_key")
+    def _normalize_idempotency_key(self, key, value):
+        normalized = (value or "").strip()
+        if not normalized:
+            raise ValueError("idempotency_key must not be empty")
+        return normalized
+
     def to_public_dict(self) -> dict:
         return {
             "id": str(self.id),
@@ -336,6 +370,7 @@ class Payment(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
             "method": self.method,
             "reference": self.reference,
             "notes": self.notes,
+            "idempotency_key": self.idempotency_key,
             "recorded_by": str(self.recorded_by),
             "created_at": self.created_at.isoformat(),
         }

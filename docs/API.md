@@ -892,6 +892,162 @@ Each entry is the raw `RequestHistory` row (`event_type`,
 `created_at`) - no resolved display names, same convention Task's own
 history endpoint already established.
 
+## Invoices (FD-042)
+
+Centralized in `backend/app/invoices/`. The first task to expose any
+invoice HTTP API - FD-040 built the models, FD-041 built pure
+calculation functions (`app/invoices/service.py`'s
+`recalculate_invoice`/`compute_line_total`/`build_line_item`) with no
+routes at all. **Every endpoint is gated by a single
+`require_permission(Permission.INVOICE_PAYMENT_MANAGE)`** - `full` for
+Owner/Accountant, `none` (`403`) for Manager/Employee/CustomerSupport
+(already finalized by FD-015). Unlike `CUSTOMER_REQUEST_MANAGE`, this
+permission has no `assigned`/`limited` scope for any role, so there's
+no per-record reach restriction beyond the decorator's own gate - the
+same simple shape as `CUSTOMER_MANAGE`.
+
+**Section 35 open decision #7** ("void-only vs. credit-note
+corrections") was resolved with the user in favor of **credit-note-style
+corrections** for an issued invoice - but that needs a new entity
+beyond FD-040's schema, which is new scope outside this task's own
+"lifecycle + controlled editing" title and isn't in the original
+65-task backlog. **This task implements the locking half only**: once
+issued, financial details are immutable here. The correction mechanism
+itself is necessary follow-up work for a future task, not built now.
+
+**`POST /organizations/{organization_id}/invoices`** - create. Body:
+`{"customer_id": "uuid", "currency": "USD", "issue_date"?: "...",
+"due_date"?: "...", "notes"?: "...", "payment_terms"?: "...",
+"discount_type"?: "flat"|"percentage", "discount_value"?: "0.00",
+"line_items"?: [{"description": "...", "quantity": "1", "unit_price":
+"10.00", "tax_rate"?: "8.25"}]}`. Always starts `draft` - `status` and
+`invoice_number` are never accepted. `invoice_number` is
+server-generated, sequential per organization (`INV-0001`, `INV-0002`,
+...) - see `docs/DATABASE.md`'s invoices section for the generation
+scheme and its collision-retry. `customer_id` must reference an
+*active* customer in this organization (`422 INVALID_CUSTOMER`,
+identical rejection for missing/cross-org/archived - same convention
+as Customer Requests). `line_items` may be empty - a Draft may
+legitimately have none yet (`PATCH .../issue` is what requires at
+least one). Every line item's `quantity` must be `> 0`,
+`unit_price`/`tax_rate` `>= 0` (`tax_rate` also `<= 100`) - rejected at
+the schema layer, not just by `recalculate_invoice`'s own downstream
+checks. `subtotal`/`tax_total`/`discount_total`/`total`/each line's
+`line_total` are always server-computed (FD-041) and never accepted
+from the client. `discount_value` must be `>= 0`, and `<= 100` when
+`discount_type` is `percentage` (`422 INVALID_DISCOUNT` either way); a
+discount that would drive `total` negative is `422 NEGATIVE_TOTAL`.
+`created_by` is always the caller's own membership.
+
+**`GET /organizations/{organization_id}/invoices`** - search, filter,
+paginate. Filters: `customer_id`, `status`, `due_date_from`/`due_date_to`
+(inclusive range, `422` if inverted) - all optional. Sorted by
+`created_at` descending. **Pagination** uses the contract from the
+Pagination section above. **Before the filtered query runs, every
+`sent`/`partially_paid` invoice in the organization whose `due_date`
+has passed is bulk-transitioned to `overdue`** (see `docs/DATABASE.md`'s
+invoices section) - so a `status=overdue` filter sees every row that's
+actually overdue, not only whichever single invoice a caller happened
+to `GET` individually.
+
+**`GET /organizations/{organization_id}/invoices/{invoice_id}`** -
+view one. Same overdue auto-refresh as the list endpoint, scoped to
+this one invoice. `404` if the invoice doesn't exist or belongs to a
+different organization.
+
+**`PATCH /organizations/{organization_id}/invoices/{invoice_id}`** -
+edit. **Draft-only** - the spec's "Important invoice rule" ("once
+issued, an invoice's financial details are never silently
+overwritten"): any other status is `422 INVOICE_LOCKED` regardless of
+what's sent. Partial update (`model_dump(exclude_unset=True)`) - only
+fields actually present are applied; `customer_id`/`currency`/
+`discount_type`/`discount_value`/`line_items` may not be sent as
+explicit `null` (`422` if they are), every other field accepts `null`
+to clear it. `invoice_number` and `status` are never accepted - status
+changes go through `/issue`/`/cancel` only. `line_items`, if present,
+**replaces the entire set** (delete-orphan cascade handles the old
+rows) rather than exposing separate add/remove/edit-one-line
+sub-endpoints - the simplest shape that still lets a Draft be fully
+reworked before issuing. Totals are unconditionally recalculated after
+any change, same validation (`INVALID_CUSTOMER`/`INVALID_DISCOUNT`/
+`NEGATIVE_TOTAL`) as creation.
+
+**`PATCH /organizations/{organization_id}/invoices/{invoice_id}/issue`**
+- draft → sent, the action that locks financial details going
+forward. Only legal from `draft`; requires at least one line item
+(`422 EMPTY_INVOICE` otherwise). **Not idempotent** - re-issuing an
+already-sent invoice is `422 INVALID_STATUS_TRANSITION`, not a no-op
+(issuing is a meaningful one-time action, unlike archiving).
+
+**`PATCH /organizations/{organization_id}/invoices/{invoice_id}/cancel`**
+- → cancelled. Allowed from `draft`/`sent`/`overdue`; blocked from
+`partially_paid`/`paid` (`422 INVALID_STATUS_TRANSITION`) since money
+has already moved - a correction to a paid-against invoice is the
+future credit-note mechanism above, never a cancellation of this one.
+**Idempotent** on an already-cancelled invoice (`200` no-op, same
+convention `DELETE /customers/{id}` already established), unlike
+`/issue`.
+
+## Payments (FD-043)
+
+Centralized in `backend/app/payments/`. Both endpoints are gated by
+the same `require_permission(Permission.INVOICE_PAYMENT_MANAGE)` as
+Invoices - there is no separate "payment" permission in the matrix.
+
+**Two Section 35-adjacent money decisions were resolved with the
+user via `AskUserQuestion`, not guessed** (Epic E06's acceptance
+criteria name both as open: "no duplicate transaction created";
+"total payments can never exceed the outstanding balance absent an
+approved overpayment policy"):
+- **Duplicate-payment prevention uses a client-supplied
+  `idempotency_key`**, not a server-side heuristic (e.g. matching
+  amount/method/reference within a time window).
+- **Overpayment is rejected**, not allowed - the sum of an invoice's
+  recorded payments can never exceed its `total`.
+
+**`POST /organizations/{organization_id}/invoices/{invoice_id}/payments`**
+- record a payment. Body: `{"amount": "40.00", "payment_date": "...",
+"method": "...", "reference"?: "...", "notes"?: "...",
+"idempotency_key": "..."}`. `amount` must be `> 0`; `idempotency_key`
+is **required**, not optional - an idempotency scheme only works if
+every caller participates. `recorded_by` is always the caller's own
+membership.
+
+The invoice must be **payable** (`sent`/`partially_paid`/`overdue`) -
+`draft` and `cancelled` are `422 INVOICE_NOT_PAYABLE`; `paid` is
+excluded by the same set. The payment amount must not exceed the
+invoice's current outstanding balance (`total` minus every payment
+already recorded) - `422 OVERPAYMENT` otherwise. On success, the
+invoice transitions to `paid` (balance reaches `0`) or
+`partially_paid` (balance remains positive) in the **same transaction**
+as the payment insert (NFR-006).
+
+**Idempotency**, in order:
+1. A replay with the **same** `idempotency_key` and the **same**
+   `invoice_id`/`amount`/`payment_date`/`method`/`reference`/`notes`
+   as an existing payment in this organization returns that original
+   payment (`200`, not `201`) - no second row inserted.
+2. The same key reused with **any different** detail, or against a
+   **different** `invoice_id`, is `409 IDEMPOTENCY_KEY_CONFLICT` - a
+   client bug, never silently accepted and never silently returning
+   mismatched data.
+3. A genuine **race** between two concurrent requests using the same
+   brand-new key resolves the same way as (1): the loser's insert
+   hits the `(organization_id, idempotency_key)` unique constraint,
+   and is recovered into a `200` replay rather than a `500`.
+
+**Response shape** (both `201` new and `200` replay): `data` is
+`{"payment": {...}, "invoice": {...}, "amount_paid": "...",
+"balance_due": "..."}` - the invoice and balance are included so the
+caller can observe the "transactional balance update" this task's own
+title promises, without a second request.
+
+**`GET /organizations/{organization_id}/invoices/{invoice_id}/payments`**
+- list, paginated, ordered **chronologically, oldest first** (a
+running ledger) - same convention as comments/history lists
+elsewhere. `404` if the invoice doesn't exist or belongs to a
+different organization.
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -935,6 +1091,14 @@ history endpoint already established.
 | POST | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}/comments` | Post a comment on a customer request | FD-038 |
 | GET | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}/comments` | List a customer request's comments, chronologically | FD-038 |
 | GET | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}/history` | List a customer request's history, chronologically (read-only) | FD-038 |
+| POST | `/api/v1/organizations/{organization_id}/invoices` | Create a draft invoice (with line items) | FD-042 |
+| GET | `/api/v1/organizations/{organization_id}/invoices` | Search/filter/paginate the org's invoices (overdue auto-refreshed first) | FD-042 |
+| GET | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}` | View one invoice | FD-042 |
+| PATCH | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}` | Edit a draft invoice (locked once issued) | FD-042 |
+| PATCH | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/issue` | Issue a draft invoice (draft → sent) | FD-042 |
+| PATCH | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/cancel` | Cancel an invoice (not once a payment is recorded) | FD-042 |
+| POST | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/payments` | Record a payment (idempotent, rejects overpayment) | FD-043 |
+| GET | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/payments` | List an invoice's payments, chronologically | FD-043 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |

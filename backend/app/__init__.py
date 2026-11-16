@@ -14,7 +14,9 @@ from app.errors import register_error_handlers
 from app.extensions import db, migrate, sess
 from app.health.routes import health_bp
 from app.invitations.routes import invitations_bp
+from app.invoices.routes import invoices_bp
 from app.organizations.routes import organizations_bp
+from app.payments.routes import payments_bp
 from app.tasks.routes import tasks_bp
 
 # Importing app.models registers every model's table on db.metadata, so
@@ -58,6 +60,8 @@ def register_blueprints(app):
     app.register_blueprint(tasks_bp, url_prefix=API_PREFIX)
     app.register_blueprint(customers_bp, url_prefix=API_PREFIX)
     app.register_blueprint(customer_requests_bp, url_prefix=API_PREFIX)
+    app.register_blueprint(invoices_bp, url_prefix=API_PREFIX)
+    app.register_blueprint(payments_bp, url_prefix=API_PREFIX)
     app.register_blueprint(health_bp, url_prefix=API_PREFIX)
     app.register_blueprint(docs_bp, url_prefix=API_PREFIX)
     app.register_blueprint(build_swagger_ui_blueprint())

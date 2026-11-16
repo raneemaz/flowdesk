@@ -2391,6 +2391,542 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/invoices:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Invoices]
+      summary: Create a draft invoice
+      description: >
+        Requires INVOICE_PAYMENT_MANAGE (full for Owner/Accountant only
+        - every other role is 403). Always starts `draft`; `status` and
+        `invoice_number` are never accepted (`invoice_number` is
+        server-generated, sequential per organization - see
+        docs/DATABASE.md's invoices section). `line_items` may be empty
+        - a Draft may legitimately have none yet; `PATCH .../issue`
+        requires at least one. `subtotal`/`tax_total`/`discount_total`/
+        `total`/each line's `line_total` are always server-computed
+        (FD-041) - never accepted from the client.
+      operationId: postOrganizationInvoices
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInvoiceRequest"
+      responses:
+        "201":
+          description: Invoice created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/InvoicePublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller lacks INVOICE_PAYMENT_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: >
+            Validation failed - a malformed field, an unknown/archived/
+            cross-organization customer_id (INVALID_CUSTOMER), a
+            negative or out-of-range discount_value (INVALID_DISCOUNT),
+            or a discount that would drive the total negative
+            (NEGATIVE_TOTAL).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    get:
+      tags: [Invoices]
+      summary: List, filter, and paginate the organization's invoices
+      description: >
+        Requires INVOICE_PAYMENT_MANAGE. Before the filtered query runs,
+        every `sent`/`partially_paid` invoice in the organization whose
+        `due_date` has passed is bulk-transitioned to `overdue` (see
+        docs/DATABASE.md's invoices section) - so a `status=overdue`
+        filter sees every row that's actually overdue, not only ones a
+        caller happened to GET individually.
+      operationId: getOrganizationInvoices
+      parameters:
+        - name: customer_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { type: string, enum: [draft, sent, partially_paid, paid, overdue, cancelled] }
+        - name: due_date_from
+          in: query
+          schema: { type: string, format: date }
+        - name: due_date_to
+          in: query
+          schema: { type: string, format: date }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: A page of the organization's invoices, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InvoicePublic"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without INVOICE_PAYMENT_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown query param, inverted due_date range, or out-of-range page/per_page)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/invoices/{invoice_id}:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: invoice_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Invoices]
+      summary: View one invoice
+      description: >
+        Requires INVOICE_PAYMENT_MANAGE - same reach as the list
+        endpoint. Applies the same overdue auto-refresh as the list
+        endpoint before returning.
+      operationId: getOrganizationInvoice
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Invoice retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/InvoicePublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without INVOICE_PAYMENT_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Invoice does not exist, or belongs to a different organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    patch:
+      tags: [Invoices]
+      summary: Edit a draft invoice
+      description: >
+        Requires INVOICE_PAYMENT_MANAGE. **Draft-only** - the spec's
+        "Important invoice rule" ("once issued, an invoice's financial
+        details are never silently overwritten"): any other status
+        returns 422 INVOICE_LOCKED regardless of what's sent.
+        `invoice_number` and `status` are never accepted - status
+        changes go through `/issue` and `/cancel` only. `line_items`,
+        if present, replaces the entire set. Totals are always
+        recalculated server-side after any change.
+      operationId: patchOrganizationInvoice
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateInvoiceRequest"
+      responses:
+        "200":
+          description: Invoice updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/InvoicePublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller lacks INVOICE_PAYMENT_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Invoice does not exist, or belongs to a different organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: >
+            Validation failed, INVOICE_LOCKED (not a draft),
+            INVALID_CUSTOMER, INVALID_DISCOUNT, or NEGATIVE_TOTAL - see
+            the POST endpoint's own 422 description for the last three.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/invoices/{invoice_id}/issue:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: invoice_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Invoices]
+      summary: Issue a draft invoice (draft -> sent)
+      description: >
+        Requires INVOICE_PAYMENT_MANAGE. This is the action that locks
+        financial details going forward. Only legal from `draft`, and
+        requires at least one line item (422 EMPTY_INVOICE otherwise).
+        **Not idempotent** - re-issuing an already-sent invoice is 422
+        INVALID_STATUS_TRANSITION, not a no-op.
+      operationId: patchOrganizationInvoiceIssue
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Invoice issued
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/InvoicePublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller lacks INVOICE_PAYMENT_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Invoice does not exist, or belongs to a different organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Not a draft invoice (INVALID_STATUS_TRANSITION), or no line items (EMPTY_INVOICE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/invoices/{invoice_id}/cancel:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: invoice_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Invoices]
+      summary: Cancel an invoice (-> cancelled)
+      description: >
+        Requires INVOICE_PAYMENT_MANAGE. Allowed from draft/sent/
+        overdue; blocked from partially_paid/paid (422
+        INVALID_STATUS_TRANSITION) since money has already moved - a
+        correction to a paid-against invoice is a future credit-note
+        mechanism, not this endpoint. **Idempotent** on an
+        already-cancelled invoice (200 no-op), unlike `/issue`.
+      operationId: patchOrganizationInvoiceCancel
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Invoice cancelled
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/InvoicePublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller lacks INVOICE_PAYMENT_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Invoice does not exist, or belongs to a different organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Cannot cancel once a payment has been recorded (partially_paid/paid)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/invoices/{invoice_id}/payments:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: invoice_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Payments]
+      summary: Record a payment against an invoice
+      description: >
+        Requires INVOICE_PAYMENT_MANAGE. The invoice must be payable
+        (sent/partially_paid/overdue); draft and cancelled are 422
+        INVOICE_NOT_PAYABLE. The amount must not exceed the invoice's
+        current outstanding balance (422 OVERPAYMENT otherwise - the
+        user's explicit direction over allowing overpayment). On
+        success the invoice transitions to paid or partially_paid in
+        the same transaction as the payment insert.
+        idempotency_key is required - a client-supplied idempotency
+        scheme (the user's explicit direction over a server-side
+        duplicate-detection heuristic), resolving Section 13's
+        mandatory "duplicate payment request -> no duplicate
+        transaction created" scenario. A replay with the same key and
+        the same payment details returns the original payment (200,
+        not 201); the same key with any different detail, or a
+        different invoice_id, is 409 IDEMPOTENCY_KEY_CONFLICT.
+      operationId: postOrganizationInvoicePayments
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePaymentRequest"
+      responses:
+        "201":
+          description: Payment recorded
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/PaymentRecordedData"
+        "200":
+          description: Idempotent replay - the same idempotency_key and payment details as an already-recorded payment
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/PaymentRecordedData"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller lacks INVOICE_PAYMENT_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Invoice does not exist, or belongs to a different organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: idempotency_key was already used for a different payment or a different invoice (IDEMPOTENCY_KEY_CONFLICT)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed, INVOICE_NOT_PAYABLE (invoice not sent/overdue/partially_paid), or OVERPAYMENT
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    get:
+      tags: [Payments]
+      summary: List an invoice's payments, chronologically
+      description: >
+        Requires INVOICE_PAYMENT_MANAGE. Ordered oldest first (a
+        running ledger).
+      operationId: getOrganizationInvoicePayments
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: A page of the invoice's payments
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PaymentPublic"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without INVOICE_PAYMENT_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Invoice does not exist, or belongs to a different organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown query param or out-of-range page/per_page)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /health:
     get:
       tags: [Health]
@@ -3383,3 +3919,306 @@ components:
         total_pages:
           type: integer
           minimum: 0
+
+    CreatePaymentRequest:
+      type: object
+      description: >
+        idempotency_key is required - an idempotency scheme only works
+        if every caller participates (FD-043, at the user's explicit
+        direction).
+      required: [amount, payment_date, method, idempotency_key]
+      additionalProperties: false
+      properties:
+        amount:
+          type: string
+          description: Decimal string or number; must be > 0.
+        payment_date:
+          type: string
+          format: date
+        method:
+          type: string
+          minLength: 1
+          maxLength: 50
+        reference:
+          type: string
+          maxLength: 255
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 255
+
+    PaymentPublic:
+      type: object
+      required: [id, invoice_id, amount, payment_date, method, reference, notes, idempotency_key, recorded_by, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        invoice_id:
+          type: string
+          format: uuid
+        amount:
+          type: string
+        payment_date:
+          type: string
+          format: date
+        method:
+          type: string
+        reference:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        idempotency_key:
+          type: string
+        recorded_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+
+    PaymentRecordedData:
+      type: object
+      description: >
+        The POST payments response's own `data` shape - includes the
+        invoice (with its already-updated status) and the resulting
+        balance alongside the payment itself, so the caller can
+        observe the transactional balance update without a second
+        request.
+      required: [payment, invoice, amount_paid, balance_due]
+      properties:
+        payment:
+          $ref: "#/components/schemas/PaymentPublic"
+        invoice:
+          $ref: "#/components/schemas/InvoicePublic"
+        amount_paid:
+          type: string
+        balance_due:
+          type: string
+
+    LineItemInput:
+      type: object
+      description: >
+        One line item inside a Create/Update invoice body. line_total
+        is never accepted - always server-computed (FD-041).
+      required: [description, quantity, unit_price]
+      additionalProperties: false
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+        quantity:
+          type: string
+          description: Decimal string or number; must be strictly positive.
+        unit_price:
+          type: string
+          description: Decimal string or number; must be >= 0.
+        tax_rate:
+          type: string
+          nullable: true
+          description: Percentage (e.g. "8.25" means 8.25%); 0-100 if given.
+
+    CreateInvoiceRequest:
+      type: object
+      description: >
+        Always starts draft - status isn't accepted. invoice_number is
+        server-generated (sequential per organization), never accepted
+        here either.
+      required: [customer_id, currency]
+      additionalProperties: false
+      properties:
+        customer_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          description: ISO 4217 code, normalized to uppercase.
+        issue_date:
+          type: string
+          format: date
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        payment_terms:
+          type: string
+          maxLength: 255
+          nullable: true
+        discount_type:
+          type: string
+          enum: [flat, percentage]
+          default: flat
+        discount_value:
+          type: string
+          description: Decimal string or number; must be >= 0 (and <= 100 when discount_type is percentage).
+          default: "0.00"
+        line_items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LineItemInput"
+          default: []
+
+    UpdateInvoiceRequest:
+      type: object
+      description: >
+        Partial update, draft-only (422 INVOICE_LOCKED on any other
+        status - see PATCH .../invoices/{invoice_id}). customer_id/
+        currency/discount_type/discount_value/line_items may not be
+        sent as null (422 if they are) - every other field accepts an
+        explicit null to clear it. invoice_number and status are never
+        accepted - status changes go through /issue and /cancel.
+        line_items, if present, replaces the entire set.
+      additionalProperties: false
+      properties:
+        customer_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        issue_date:
+          type: string
+          format: date
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        payment_terms:
+          type: string
+          maxLength: 255
+          nullable: true
+        discount_type:
+          type: string
+          enum: [flat, percentage]
+        discount_value:
+          type: string
+          description: Decimal string or number; must be >= 0 (and <= 100 when discount_type is percentage).
+        line_items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LineItemInput"
+
+    InvoiceLineItemPublic:
+      type: object
+      required: [id, invoice_id, description, quantity, unit_price, tax_rate, line_total, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        invoice_id:
+          type: string
+          format: uuid
+        description:
+          type: string
+        quantity:
+          type: string
+        unit_price:
+          type: string
+        tax_rate:
+          type: string
+          nullable: true
+        line_total:
+          type: string
+          description: Server-computed (quantity * unit_price, rounded) - never client-submitted.
+        created_at:
+          type: string
+          format: date-time
+
+    InvoicePublic:
+      type: object
+      description: >
+        subtotal/tax_total/discount_total/total are always
+        server-computed (FD-041) - never trust a client-submitted
+        value for any of these. discount_type/discount_value are the
+        *input*; discount_total is the computed *output*, always a
+        flat amount regardless of discount_type.
+      required:
+        [
+          id,
+          organization_id,
+          customer_id,
+          invoice_number,
+          status,
+          issue_date,
+          due_date,
+          currency,
+          subtotal,
+          tax_total,
+          discount_type,
+          discount_value,
+          discount_total,
+          total,
+          notes,
+          payment_terms,
+          created_by,
+          created_at,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+        invoice_number:
+          type: string
+          description: Server-generated, sequential per organization (e.g. "INV-0001").
+        status:
+          type: string
+          enum: [draft, sent, partially_paid, paid, overdue, cancelled]
+        issue_date:
+          type: string
+          format: date
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        currency:
+          type: string
+        subtotal:
+          type: string
+        tax_total:
+          type: string
+        discount_type:
+          type: string
+          enum: [flat, percentage]
+        discount_value:
+          type: string
+        discount_total:
+          type: string
+        total:
+          type: string
+        notes:
+          type: string
+          nullable: true
+        payment_terms:
+          type: string
+          nullable: true
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time

@@ -31,10 +31,17 @@ rather than guessed:
   input, not quietly rewrite it.
 """
 
+import uuid
+from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from app.errors import APIError
-from app.models import DiscountType, Invoice, InvoiceLineItem
+from app.extensions import db
+from app.models import Customer, CustomerStatus, DiscountType, Invoice, InvoiceLineItem, InvoiceStatus
 
 _CENT = Decimal("0.01")
 
@@ -68,6 +75,21 @@ def recalculate_invoice(invoice: Invoice) -> None:
             status_code=422,
             code="INVALID_DISCOUNT",
             details={"discount_value": "must not be negative"},
+        )
+    # FD-042 addition: a percentage above 100 isn't caught by the
+    # negative-total check below, since a large enough tax_rate can
+    # offset it into a still-positive total (e.g. subtotal 100, tax 60,
+    # discount_value 150% -> discount_total 150, total 10 - positive,
+    # but a "150% discount" is nonsensical regardless). Enforced here
+    # too, not just at the schema layer (CreateInvoiceRequest/
+    # UpdateInvoiceRequest), so this invariant holds for every caller
+    # of this function, not only ones that went through the API schema.
+    if invoice.discount_type == DiscountType.PERCENTAGE and invoice.discount_value > Decimal("100.00"):
+        raise APIError(
+            "A percentage discount must not exceed 100.",
+            status_code=422,
+            code="INVALID_DISCOUNT",
+            details={"discount_value": "must not exceed 100 when discount_type is percentage"},
         )
 
     subtotal = Decimal("0.00")
@@ -124,3 +146,360 @@ def build_line_item(
         tax_rate=tax_rate,
         line_total=compute_line_total(quantity, unit_price),
     )
+
+
+# ---------------------------------------------------------------------------
+# FD-042: invoice lifecycle (create/retrieve, controlled Draft-only editing,
+# issue, cancel) and the overdue-status refresh. Section 35 open decision #7
+# ("void-only vs. credit-note corrections") was resolved with the user in
+# favor of credit-note-style corrections for *issued* invoices - but that
+# needs a new entity beyond FD-040's schema, which is new scope outside this
+# task's own "lifecycle + controlled editing" title and isn't in the
+# original backlog. This task implements the *locking* half only (once
+# issued, financial details are immutable here); the correction mechanism
+# itself is necessary follow-up work for a future task, not built now.
+#
+# `Permission.INVOICE_PAYMENT_MANAGE` (FD-015) is `full` for Owner/
+# Accountant and `none` for every other role - no scope nuance to apply
+# beyond `require_permission`'s own gate, the same simple shape as
+# `CUSTOMER_MANAGE`/`DEPARTMENT_MANAGE`.
+# ---------------------------------------------------------------------------
+
+
+def _set_currency(invoice: Invoice, currency: str) -> None:
+    # Invoice.currency's own @validates (FD-042 addition) normalizes
+    # case and checks length - converted to a 422 here rather than
+    # letting the bare ValueError escape as an unhandled 500, same
+    # pattern as every other _set_<field> helper in this codebase.
+    try:
+        invoice.currency = currency
+    except ValueError as exc:
+        raise APIError(str(exc), status_code=422, code="VALIDATION_ERROR", details={"currency": str(exc)})
+
+
+def _validate_customer(organization_id: uuid.UUID, customer_id: uuid.UUID) -> None:
+    """Mirrors app.customer_requests.service._validate_customer exactly:
+    customer_id must reference an *active* Customer in this organization.
+    A new invoice can't be created against (or edited onto) an archived
+    customer, though an existing invoice stays fully usable if its
+    customer is archived later."""
+    customer = db.session.query(Customer).filter_by(id=customer_id, organization_id=organization_id).first()
+    if customer is None or customer.status != CustomerStatus.ACTIVE:
+        raise APIError(
+            "customer_id must reference an active customer in this organization.",
+            status_code=422,
+            code="INVALID_CUSTOMER",
+            details={"customer_id": "must reference an active customer in this organization"},
+        )
+
+
+def _build_line_items(organization_id: uuid.UUID, invoice_id: uuid.UUID, line_items: list[dict]) -> list[InvoiceLineItem]:
+    """`line_items` is a list of plain dicts (description/quantity/
+    unit_price/tax_rate) - the shape both CreateInvoiceRequest's and
+    UpdateInvoiceRequest's own `line_items` take once the route layer
+    calls `.model_dump()` on them, so both callers can pass the same
+    shape through without one needing real pydantic objects and the
+    other plain dicts."""
+    return [
+        build_line_item(
+            organization_id,
+            invoice_id,
+            description=item["description"],
+            quantity=item["quantity"],
+            unit_price=item["unit_price"],
+            tax_rate=item.get("tax_rate"),
+        )
+        for item in line_items
+    ]
+
+
+_MAX_INVOICE_NUMBER_ATTEMPTS = 5
+
+
+def _generate_invoice_number(organization_id: uuid.UUID, attempt: int) -> str:
+    """Sequential per organization ("INV-0001", "INV-0002", ...) -
+    server-generated, never client-supplied (neither CreateInvoiceRequest
+    nor UpdateInvoiceRequest accepts invoice_number), consistent with
+    every other server-computed invoice field. Simpler than the
+    "INV-2026-0001" year-based example in FD-040's own model docstring -
+    nothing requires year-based numbering, and a flat counter is the
+    more predictable choice for V1. Counts *every* invoice ever created
+    in the organization, cancelled ones included, so a number is never
+    reused. `attempt` disambiguates a uniqueness race (two concurrent
+    creates computing the same count before either commits) by
+    offsetting the candidate sequence - simpler than
+    app.organizations.service._generate_unique_slug's random-suffix
+    retry, since invoice numbers are meant to look sequential."""
+    count = db.session.query(func.count(Invoice.id)).filter(Invoice.organization_id == organization_id).scalar()
+    sequence = count + 1 + attempt
+    return f"INV-{sequence:04d}"
+
+
+def create_invoice(
+    organization_id: uuid.UUID,
+    creator_membership_id: uuid.UUID,
+    *,
+    customer_id: uuid.UUID,
+    currency: str,
+    issue_date: date | None,
+    due_date: date | None,
+    notes: str | None,
+    payment_terms: str | None,
+    discount_type: DiscountType,
+    discount_value: Decimal,
+    line_items: list[dict],
+) -> Invoice:
+    """FD-042. Always starts Draft (the model's own default) - `status`
+    isn't accepted here, same convention as CustomerRequest/Task's own
+    create functions. A Draft may legitimately have zero line items
+    (FD-040's own docstring) - `issue_invoice` is what requires at
+    least one. `created_by` is always the caller's own membership,
+    never accepted from the request body."""
+    _validate_customer(organization_id, customer_id)
+
+    last_error = None
+    for attempt in range(_MAX_INVOICE_NUMBER_ATTEMPTS):
+        invoice = Invoice(
+            organization_id=organization_id,
+            customer_id=customer_id,
+            invoice_number=_generate_invoice_number(organization_id, attempt),
+            issue_date=issue_date,
+            due_date=due_date,
+            notes=notes,
+            payment_terms=payment_terms,
+            discount_type=discount_type,
+            discount_value=discount_value,
+            created_by=creator_membership_id,
+        )
+        _set_currency(invoice, currency)
+        db.session.add(invoice)
+        try:
+            db.session.flush()
+        except IntegrityError:
+            db.session.rollback()
+            last_error = "invoice_number collision"
+            continue
+        break
+    else:
+        raise RuntimeError(
+            f"Could not generate a unique invoice_number after {_MAX_INVOICE_NUMBER_ATTEMPTS} attempts: {last_error}"
+        )
+
+    invoice.line_items = _build_line_items(organization_id, invoice.id, line_items)
+
+    try:
+        recalculate_invoice(invoice)
+    except APIError:
+        db.session.rollback()
+        raise
+
+    db.session.commit()
+    return invoice
+
+
+def _today_in_timezone(organization_timezone: str, *, now: datetime | None = None) -> date:
+    """Identical in intent to app.tasks.service._today_in_timezone
+    (FD-033) - "today" is always the calling organization's own local
+    calendar date, never the server's. Duplicated here rather than
+    imported since there's no shared utility module in this codebase
+    for it yet; see that function's own docstring for the full
+    reasoning (unrecognized zone names fall back to UTC rather than
+    raising, `now` is injectable for deterministic boundary tests)."""
+    try:
+        tz = ZoneInfo(organization_timezone)
+    except (ZoneInfoNotFoundError, ValueError, TypeError):
+        tz = timezone.utc
+    reference = now if now is not None else datetime.now(timezone.utc)
+    return reference.astimezone(tz).date()
+
+
+# FR-025's `overdue` is a real stored InvoiceStatus value (FD-040) -
+# unlike Task's own overdue detection (FD-033), which layers a
+# *computed*, read-only `is_overdue` flag on top of a status with no
+# such value. So this actually transitions and persists `status`,
+# applied as a bulk UPDATE across the whole organization before every
+# get/list read (not a per-row Python loop) - that way a `?status=overdue`
+# filter sees accurate rows too, not just whichever single invoice a
+# caller happens to fetch. This substitutes for the "scheduled daily"
+# background job spec Section 14 names, until that scheduler actually
+# exists - same bootstrapping rationale FD-033 already established.
+# `partially_paid` is included for forward compatibility with FD-043
+# (payments), even though nothing in this task's own tests can reach
+# that status yet.
+_OVERDUE_ELIGIBLE_STATUSES = (InvoiceStatus.SENT, InvoiceStatus.PARTIALLY_PAID)
+
+
+def _refresh_overdue_invoices(organization_id: uuid.UUID, organization_timezone: str, *, now: datetime | None = None) -> None:
+    today = _today_in_timezone(organization_timezone, now=now)
+    db.session.query(Invoice).filter(
+        Invoice.organization_id == organization_id,
+        Invoice.status.in_(_OVERDUE_ELIGIBLE_STATUSES),
+        Invoice.due_date.isnot(None),
+        Invoice.due_date < today,
+    ).update({Invoice.status: InvoiceStatus.OVERDUE}, synchronize_session="fetch")
+    db.session.commit()
+
+
+def get_invoice_or_404(organization_id: uuid.UUID, invoice_id: uuid.UUID, *, for_update: bool = False) -> Invoice:
+    """`for_update=True` (FD-043) issues `SELECT ... FOR UPDATE`,
+    locking the row for the rest of the caller's transaction - used by
+    `app.payments.service.record_payment` immediately before its
+    check-then-act balance validation, so two concurrent payment
+    requests against the same invoice (with two different, individually
+    valid `idempotency_key`s - the idempotency unique constraint alone
+    only catches a *repeated* key) serialize on this row instead of
+    both reading the same pre-payment balance and both passing the
+    overpayment check. Every plain read (GET/list) leaves this `False`
+    - there's no reason to lock a row nothing is about to mutate."""
+    query = db.session.query(Invoice).filter_by(id=invoice_id, organization_id=organization_id)
+    if for_update:
+        query = query.with_for_update()
+    invoice = query.first()
+    if invoice is None:
+        raise APIError("Not found.", status_code=404, code="NOT_FOUND")
+    return invoice
+
+
+def get_invoice(
+    organization_id: uuid.UUID, invoice_id: uuid.UUID, organization_timezone: str, *, now: datetime | None = None
+) -> Invoice:
+    _refresh_overdue_invoices(organization_id, organization_timezone, now=now)
+    return get_invoice_or_404(organization_id, invoice_id)
+
+
+def list_invoices(
+    organization_id: uuid.UUID,
+    *,
+    organization_timezone: str,
+    customer_id: uuid.UUID | None,
+    status: InvoiceStatus | None,
+    due_date_from: date | None,
+    due_date_to: date | None,
+    page: int,
+    per_page: int,
+    now: datetime | None = None,
+) -> tuple[list[Invoice], int]:
+    _refresh_overdue_invoices(organization_id, organization_timezone, now=now)
+
+    query = db.session.query(Invoice).filter(Invoice.organization_id == organization_id)
+    if customer_id is not None:
+        query = query.filter(Invoice.customer_id == customer_id)
+    if status is not None:
+        query = query.filter(Invoice.status == status)
+    if due_date_from is not None:
+        query = query.filter(Invoice.due_date >= due_date_from)
+    if due_date_to is not None:
+        query = query.filter(Invoice.due_date <= due_date_to)
+
+    total = query.count()
+    invoices = query.order_by(Invoice.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
+    return invoices, total
+
+
+_EDITABLE_INVOICE_FIELDS = ("issue_date", "due_date", "notes", "payment_terms", "discount_type", "discount_value")
+
+
+def update_invoice(organization_id: uuid.UUID, invoice_id: uuid.UUID, fields: dict) -> Invoice:
+    """FD-042: PATCH, Draft-only - any other status is `422
+    INVOICE_LOCKED` (the "Important invoice rule": once issued,
+    financial details are never silently overwritten; controlled
+    corrections to an issued invoice are a future credit-note task, not
+    this endpoint). `fields` is the caller's own
+    `UpdateInvoiceRequest.model_dump(exclude_unset=True)` - only keys
+    actually present are applied, same convention
+    app.customers.service.update_customer established. `line_items`,
+    if present, replaces the entire set (delete-orphan cascade handles
+    the old rows) rather than exposing separate add/remove/edit-one-line
+    sub-endpoints - the simplest shape that still lets a Draft be fully
+    reworked before issuing. `invoice_number`/`status` are never
+    accepted (not in `_EDITABLE_INVOICE_FIELDS` or handled below) -
+    status changes go through `issue_invoice`/`cancel_invoice` only.
+    Totals are unconditionally recalculated, even if only an unrelated
+    field like `notes` changed - cheap, and removes any risk of a
+    missed case leaving stale totals."""
+    invoice = get_invoice_or_404(organization_id, invoice_id)
+    if invoice.status != InvoiceStatus.DRAFT:
+        raise APIError(
+            "Cannot edit an invoice once it has been issued.",
+            status_code=422,
+            code="INVOICE_LOCKED",
+            details={"status": "only a draft invoice can be edited"},
+        )
+
+    if "customer_id" in fields:
+        _validate_customer(organization_id, fields["customer_id"])
+        invoice.customer_id = fields["customer_id"]
+    if "currency" in fields:
+        _set_currency(invoice, fields["currency"])
+    if "line_items" in fields:
+        invoice.line_items = _build_line_items(organization_id, invoice.id, fields["line_items"])
+
+    for field in _EDITABLE_INVOICE_FIELDS:
+        if field in fields:
+            setattr(invoice, field, fields[field])
+
+    try:
+        recalculate_invoice(invoice)
+    except APIError:
+        db.session.rollback()
+        raise
+
+    db.session.commit()
+    return invoice
+
+
+_CANCELLABLE_STATUSES = (InvoiceStatus.DRAFT, InvoiceStatus.SENT, InvoiceStatus.OVERDUE)
+
+
+def issue_invoice(organization_id: uuid.UUID, invoice_id: uuid.UUID) -> Invoice:
+    """FD-042: draft -> sent, the action that locks financial details
+    going forward. Not idempotent (unlike cancel) - issuing is a
+    meaningful one-time action, so re-issuing an already-sent invoice
+    is `422 INVALID_STATUS_TRANSITION`, not a silent no-op. Requires at
+    least one line item - issuing an invoice that bills nothing doesn't
+    make sense, even though a bare Draft may otherwise have zero
+    (FD-040's own docstring)."""
+    invoice = get_invoice_or_404(organization_id, invoice_id)
+    if invoice.status != InvoiceStatus.DRAFT:
+        raise APIError(
+            f"Cannot issue an invoice from status '{invoice.status.value}'.",
+            status_code=422,
+            code="INVALID_STATUS_TRANSITION",
+            details={"status": "only a draft invoice can be issued"},
+        )
+    if not invoice.line_items:
+        raise APIError(
+            "Cannot issue an invoice with no line items.",
+            status_code=422,
+            code="EMPTY_INVOICE",
+            details={"line_items": "at least one line item is required to issue an invoice"},
+        )
+
+    invoice.status = InvoiceStatus.SENT
+    db.session.commit()
+    return invoice
+
+
+def cancel_invoice(organization_id: uuid.UUID, invoice_id: uuid.UUID) -> Invoice:
+    """FD-042: -> cancelled. Idempotent on an already-cancelled invoice
+    (`200` no-op, same convention app.customers.service.archive_customer
+    already established) - unlike issue_invoice, "cancel" is naturally
+    idempotent (it's a terminal state, not a one-time trigger). Blocked
+    once money has moved (partially_paid/paid) - the Important Invoice
+    Rule, and this task's own resolved Section 35 #7 answer: a
+    correction to an issued, paid-against invoice goes through a
+    future credit-note mechanism, never a cancellation of this one."""
+    invoice = get_invoice_or_404(organization_id, invoice_id)
+    if invoice.status == InvoiceStatus.CANCELLED:
+        return invoice
+    if invoice.status not in _CANCELLABLE_STATUSES:
+        raise APIError(
+            f"Cannot cancel an invoice from status '{invoice.status.value}'.",
+            status_code=422,
+            code="INVALID_STATUS_TRANSITION",
+            details={"status": "cannot cancel once a payment has been recorded"},
+        )
+
+    invoice.status = InvoiceStatus.CANCELLED
+    db.session.commit()
+    return invoice
