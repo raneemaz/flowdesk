@@ -105,8 +105,11 @@ FD-035 (customer CRUD — search, pagination, archive; see
 RequestComment/RequestHistory models; see `docs/DATABASE.md`'s own
 sections), and FD-037 (request workflow — create/retrieve, assignment,
 New → Assigned → In Progress → Waiting for Customer → Resolved →
-Closed; see `docs/API.md`'s Customer requests section) are Done, the
-first four tasks of Epic E05 (Customer and Request Management).
+Closed; see `docs/API.md`'s Customer requests section), and FD-038
+(request comments & history — internal comments never
+customer-exposed by construction; see `docs/API.md`'s own section) are
+Done, the first five tasks of Epic E05 (Customer and Request
+Management).
 
 ## Local development infrastructure
 

@@ -71,3 +71,33 @@ class UpdateCustomerRequestStatusRequest(BaseModel):
 
     status: RequestStatus
     resolution_notes: str | None = None
+
+
+class CreateRequestCommentRequest(BaseModel):
+    """FD-038: body for POST /organizations/{id}/customer-requests/{request_id}/comments.
+    No max_length cap - RequestComment.body is an unbounded Text
+    column (FD-036), same treatment as TaskComment.body."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    body: str = Field(min_length=1)
+
+
+class ListRequestCommentsQuery(BaseModel):
+    """Query-string params for GET /organizations/{id}/customer-requests/{request_id}/comments."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    page: int = Field(default=1, ge=1)
+    per_page: int = Field(default=20, ge=1, le=100)
+
+
+class ListRequestHistoryQuery(BaseModel):
+    """FD-038: query-string params for GET /organizations/{id}/customer-requests/{request_id}/history.
+    No filters - same "chronological, append-only" retrieval scope as
+    Task's own ListTaskHistoryQuery (FD-031)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    page: int = Field(default=1, ge=1)
+    per_page: int = Field(default=20, ge=1, le=100)

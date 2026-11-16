@@ -2190,6 +2190,207 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/customer-requests/{request_id}/comments:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: request_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [CustomerRequests]
+      summary: Post a comment on a customer request
+      description: >
+        Requires CUSTOMER_REQUEST_MANAGE, with the same object-level
+        reach check GET /customer-requests/{request_id} uses: full
+        scope may comment on any request, assigned scope only on a
+        request assigned to the caller. author_membership_id is always
+        the caller's own membership. Every comment is implicitly
+        internal - there is no customer-facing surface anywhere in
+        this API for one to be exposed through.
+      operationId: postOrganizationCustomerRequestComment
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRequestCommentRequest"
+      responses:
+        "201":
+          description: The created comment
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/RequestCommentPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or request not assigned to an assigned-scope caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or the request is missing/cross-organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (missing/blank body, or an unknown field)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    get:
+      tags: [CustomerRequests]
+      summary: List a customer request's comments, chronologically
+      description: >
+        Requires CUSTOMER_REQUEST_MANAGE, same reach check as POSTing a
+        comment. Ordered oldest first.
+      operationId: getOrganizationCustomerRequestComments
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: A page of the request's comments
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RequestCommentPublic"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Request not assigned to an assigned-scope caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or the request is missing/cross-organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown query param or out-of-range page/per_page)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/customer-requests/{request_id}/history:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: request_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [CustomerRequests]
+      summary: List a customer request's history, chronologically (read-only)
+      description: >
+        Requires CUSTOMER_REQUEST_MANAGE, same reach check as the
+        comments and single-request endpoints. No corresponding POST -
+        every row is written as a side effect of /assign and /status
+        (FD-037), never created directly. Ordered oldest first.
+      operationId: getOrganizationCustomerRequestHistory
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: A page of the request's history
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RequestHistoryPublic"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Request not assigned to an assigned-scope caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or the request is missing/cross-organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown query param or out-of-range page/per_page)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /health:
     get:
       tags: [Health]
@@ -2931,6 +3132,67 @@ components:
           format: date
           nullable: true
         resolution_notes:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    CreateRequestCommentRequest:
+      type: object
+      description: No max length - RequestComment.body is an unbounded text column.
+      required: [body]
+      additionalProperties: false
+      properties:
+        body:
+          type: string
+          minLength: 1
+
+    RequestCommentPublic:
+      type: object
+      required: [id, request_id, author_membership_id, body, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+          format: uuid
+        author_membership_id:
+          type: string
+          format: uuid
+          nullable: true
+        body:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    RequestHistoryPublic:
+      type: object
+      description: >
+        event_type is a plain string, not a closed enum (RequestHistory's
+        own docstring, FD-036, explains why) - currently written values
+        include assignee_changed, status_changed, and
+        resolution_notes_changed (FD-037).
+      required: [id, request_id, actor_membership_id, event_type, previous_value, new_value, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+          format: uuid
+        actor_membership_id:
+          type: string
+          format: uuid
+          nullable: true
+        event_type:
+          type: string
+        previous_value:
+          type: string
+          nullable: true
+        new_value:
           type: string
           nullable: true
         created_at:

@@ -7,13 +7,19 @@ from app.authz.permissions import Permission
 from app.customer_requests.schemas import (
     AssignCustomerRequestRequest,
     CreateCustomerRequestRequest,
+    CreateRequestCommentRequest,
     ListCustomerRequestsQuery,
+    ListRequestCommentsQuery,
+    ListRequestHistoryQuery,
     UpdateCustomerRequestStatusRequest,
 )
 from app.customer_requests.service import (
     assign_request,
     create_request,
+    create_request_comment,
     get_request,
+    list_request_comments,
+    list_request_history,
     list_requests,
     update_request_status,
 )
@@ -163,4 +169,99 @@ def patch_customer_request_status(organization_id, request_id):
     )
 
     body = {"success": True, "message": "Customer request status updated", "data": customer_request.to_public_dict()}
+    return jsonify(body), 200
+
+
+@customer_requests_bp.route(
+    "/organizations/<uuid:organization_id>/customer-requests/<uuid:request_id>/comments", methods=["POST"]
+)
+@login_required
+@csrf_protect
+@require_permission(Permission.CUSTOMER_REQUEST_MANAGE)
+def post_customer_request_comments(organization_id, request_id):
+    payload = request.get_json(silent=True)
+    if payload is None:
+        raise APIError("Request body must be valid JSON.", status_code=400, code="BAD_REQUEST")
+
+    try:
+        data = CreateRequestCommentRequest.model_validate(payload)
+    except ValidationError as exc:
+        raise APIError(
+            "Validation failed", status_code=422, code="VALIDATION_ERROR", details=validation_error_details(exc)
+        )
+
+    comment = create_request_comment(
+        organization_id,
+        request_id,
+        scope=g.permission_scope,
+        caller_membership_id=g.current_membership.id,
+        author_membership_id=g.current_membership.id,
+        body=data.body,
+    )
+
+    body = {"success": True, "message": "Comment created", "data": comment.to_public_dict()}
+    return jsonify(body), 201
+
+
+@customer_requests_bp.route(
+    "/organizations/<uuid:organization_id>/customer-requests/<uuid:request_id>/comments", methods=["GET"]
+)
+@login_required
+@require_permission(Permission.CUSTOMER_REQUEST_MANAGE)
+def get_customer_request_comments(organization_id, request_id):
+    try:
+        query = ListRequestCommentsQuery.model_validate(request.args.to_dict())
+    except ValidationError as exc:
+        raise APIError(
+            "Validation failed", status_code=422, code="VALIDATION_ERROR", details=validation_error_details(exc)
+        )
+
+    comments, total = list_request_comments(
+        organization_id,
+        request_id,
+        scope=g.permission_scope,
+        caller_membership_id=g.current_membership.id,
+        page=query.page,
+        per_page=query.per_page,
+    )
+    total_pages = (total + query.per_page - 1) // query.per_page if total else 0
+
+    body = {
+        "success": True,
+        "message": "Comments retrieved",
+        "data": [comment.to_public_dict() for comment in comments],
+        "meta": {"page": query.page, "per_page": query.per_page, "total": total, "total_pages": total_pages},
+    }
+    return jsonify(body), 200
+
+
+@customer_requests_bp.route(
+    "/organizations/<uuid:organization_id>/customer-requests/<uuid:request_id>/history", methods=["GET"]
+)
+@login_required
+@require_permission(Permission.CUSTOMER_REQUEST_MANAGE)
+def get_customer_request_history(organization_id, request_id):
+    try:
+        query = ListRequestHistoryQuery.model_validate(request.args.to_dict())
+    except ValidationError as exc:
+        raise APIError(
+            "Validation failed", status_code=422, code="VALIDATION_ERROR", details=validation_error_details(exc)
+        )
+
+    entries, total = list_request_history(
+        organization_id,
+        request_id,
+        scope=g.permission_scope,
+        caller_membership_id=g.current_membership.id,
+        page=query.page,
+        per_page=query.per_page,
+    )
+    total_pages = (total + query.per_page - 1) // query.per_page if total else 0
+
+    body = {
+        "success": True,
+        "message": "History retrieved",
+        "data": [entry.to_public_dict() for entry in entries],
+        "meta": {"page": query.page, "per_page": query.per_page, "total": total, "total_pages": total_pages},
+    }
     return jsonify(body), 200

@@ -31,6 +31,7 @@ from app.models import (
     CustomerStatus,
     Membership,
     MembershipStatus,
+    RequestComment,
     RequestHistory,
     RequestPriority,
     RequestStatus,
@@ -385,3 +386,93 @@ def update_request_status(
         db.session.add_all(history_entries)
     db.session.commit()
     return request
+
+
+def _set_comment_body(comment: RequestComment, body: str) -> None:
+    # RequestComment.body's own @validates (strips and rejects a blank
+    # result) - converted to a 422 here rather than letting the bare
+    # ValueError escape as an unhandled 500, same pattern
+    # app.tasks.service._set_comment_body already established.
+    try:
+        comment.body = body
+    except ValueError as exc:
+        raise APIError(str(exc), status_code=422, code="VALIDATION_ERROR", details={"body": str(exc)})
+
+
+def create_request_comment(
+    organization_id: uuid.UUID,
+    request_id: uuid.UUID,
+    *,
+    scope: PermissionScope,
+    caller_membership_id: uuid.UUID,
+    author_membership_id: uuid.UUID,
+    body: str,
+) -> RequestComment:
+    """FD-038. Reuses get_request's own reach check (404 missing/
+    cross-organization, 403 for an `assigned`-scope caller whose
+    request isn't theirs) as this task's own "access-restricted" gate -
+    posting a comment requires the same access as viewing the request,
+    nothing more. No `is_internal` field to set - every comment here is
+    implicitly internal (see RequestComment's own model docstring,
+    FD-036): there's no customer-facing surface anywhere in this
+    backlog for a comment to ever be exposed *to* in the first place.
+    `author_membership_id` is always the caller's own membership (set
+    by the route from g.current_membership.id), never accepted from
+    the request body.
+    """
+    request = get_request(organization_id, request_id, scope=scope, caller_membership_id=caller_membership_id)
+
+    comment = RequestComment(
+        organization_id=organization_id, request_id=request.id, author_membership_id=author_membership_id
+    )
+    _set_comment_body(comment, body)
+
+    db.session.add(comment)
+    db.session.commit()
+    return comment
+
+
+def list_request_comments(
+    organization_id: uuid.UUID,
+    request_id: uuid.UUID,
+    *,
+    scope: PermissionScope,
+    caller_membership_id: uuid.UUID,
+    page: int,
+    per_page: int,
+) -> tuple[list[RequestComment], int]:
+    """Same reach check as create_request_comment - a caller who can't
+    view the request can't see its comments either. Chronological,
+    oldest first (a conversation thread), unlike the requests list's
+    own newest-first default."""
+    request = get_request(organization_id, request_id, scope=scope, caller_membership_id=caller_membership_id)
+
+    query = db.session.query(RequestComment).filter_by(organization_id=organization_id, request_id=request.id)
+    total = query.count()
+    comments = query.order_by(RequestComment.created_at.asc()).offset((page - 1) * per_page).limit(per_page).all()
+    return comments, total
+
+
+def list_request_history(
+    organization_id: uuid.UUID,
+    request_id: uuid.UUID,
+    *,
+    scope: PermissionScope,
+    caller_membership_id: uuid.UUID,
+    page: int,
+    per_page: int,
+) -> tuple[list[RequestHistory], int]:
+    """FD-038. No create function exists for RequestHistory, by design -
+    "history" here means every row is written as a side effect of
+    assign_request/update_request_status (FD-037), never directly
+    through an API call; this is purely the read side. Same reach check
+    as list_request_comments - a caller who can't view the request
+    can't see its history either. Chronological, oldest first, same
+    convention as the comments list and RequestHistory's own
+    relationship ordering (FD-036)."""
+    request = get_request(organization_id, request_id, scope=scope, caller_membership_id=caller_membership_id)
+
+    query = db.session.query(RequestHistory).filter_by(organization_id=organization_id, request_id=request.id)
+    total = query.count()
+    entries = query.order_by(RequestHistory.created_at.asc()).offset((page - 1) * per_page).limit(per_page).all()
+    return entries, total

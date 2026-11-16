@@ -112,6 +112,9 @@ def test_openapi_documents_the_real_customer_requests_endpoints():
     assert "get" in spec["paths"]["/organizations/{organization_id}/customer-requests/{request_id}"]
     assert "patch" in spec["paths"]["/organizations/{organization_id}/customer-requests/{request_id}/assign"]
     assert "patch" in spec["paths"]["/organizations/{organization_id}/customer-requests/{request_id}/status"]
+    assert "post" in spec["paths"]["/organizations/{organization_id}/customer-requests/{request_id}/comments"]
+    assert "get" in spec["paths"]["/organizations/{organization_id}/customer-requests/{request_id}/comments"]
+    assert "get" in spec["paths"]["/organizations/{organization_id}/customer-requests/{request_id}/history"]
 
 
 def test_openapi_file_has_exactly_one_components_block():
@@ -186,6 +189,9 @@ def test_openapi_schemas_referenced_by_new_endpoints_are_defined():
     assert "AssignCustomerRequestRequest" in schemas
     assert "UpdateCustomerRequestStatusRequest" in schemas
     assert "CustomerRequestPublic" in schemas
+    assert "CreateRequestCommentRequest" in schemas
+    assert "RequestCommentPublic" in schemas
+    assert "RequestHistoryPublic" in schemas
     assert "PaginationMeta" in schemas
 
 

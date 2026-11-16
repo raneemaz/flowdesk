@@ -858,6 +858,40 @@ A real transition writes a `RequestHistory` row (`event_type:
 "status_changed"`, raw `previous_value`/`new_value` status strings,
 `actor_membership_id` the caller).
 
+**`POST`/`GET /organizations/{organization_id}/customer-requests/{request_id}/comments`
+- both gated by `CUSTOMER_REQUEST_MANAGE`**, reusing `get_request`'s
+own object-level reach check (404 missing/cross-organization, 403 for
+an `assigned`-scope caller whose request isn't theirs) as this task's
+own "access-restricted" acceptance criterion - posting or reading a
+request's comments needs exactly the same access as viewing the
+request itself.
+
+- `POST` body: `{"body": "..."}` - required, non-blank.
+  `author_membership_id` is always the caller's own membership, never
+  accepted from the request body.
+- `GET` - paginated with the usual contract, ordered
+  **chronologically, oldest first** (a conversation thread).
+- No edit or delete endpoint - posting and reading comments only.
+
+**"Internal comments never customer-exposed"** (this task's own
+title) is satisfied by construction, not by an access-control flag:
+`RequestComment` has no `is_internal` column (FD-036's own model
+docstring explains why) because there is no customer-facing surface
+anywhere in this backlog for a comment to ever be exposed *to* in the
+first place - every comment reachable through this staff-only,
+`CUSTOMER_REQUEST_MANAGE`-gated endpoint is implicitly internal.
+
+**`GET /organizations/{organization_id}/customer-requests/{request_id}/history`
+- gated by `CUSTOMER_REQUEST_MANAGE`**, same object-level reach check
+as comments and the single-request view. **Read-only by design** -
+there is no corresponding `POST`; every row comes from `/assign`'s and
+`/status`'s own side effects (FD-037), never a direct write through
+this endpoint. Paginated, ordered **chronologically, oldest first**.
+Each entry is the raw `RequestHistory` row (`event_type`,
+`previous_value`/`new_value` as stored strings, `actor_membership_id`,
+`created_at`) - no resolved display names, same convention Task's own
+history endpoint already established.
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -898,6 +932,9 @@ A real transition writes a `RequestHistory` row (`event_type:
 | GET | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}` | View one customer request | FD-037 |
 | PATCH | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}/assign` | Assign/reassign/unassign a request | FD-037 |
 | PATCH | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}/status` | Move a request through its status workflow | FD-037 |
+| POST | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}/comments` | Post a comment on a customer request | FD-038 |
+| GET | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}/comments` | List a customer request's comments, chronologically | FD-038 |
+| GET | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}/history` | List a customer request's history, chronologically (read-only) | FD-038 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |
