@@ -99,8 +99,14 @@ assignment, comments, history; see `frontend/README.md`'s own section),
 and FD-033 (overdue detection — timezone-aware, excludes terminal
 statuses; see `docs/API.md`'s Tasks section) are Done, completing Epic
 E04 (Task Management and Workflows). FD-034 (Customer model —
-org-scoped, search indexes; see `docs/DATABASE.md`'s own section) is
-Done, the first task of Epic E05 (Customer and Request Management).
+org-scoped, search indexes; see `docs/DATABASE.md`'s own section) and
+FD-035 (customer CRUD — search, pagination, archive; see
+`docs/API.md`'s Customers section), FD-036 (CustomerRequest/
+RequestComment/RequestHistory models; see `docs/DATABASE.md`'s own
+sections), and FD-037 (request workflow — create/retrieve, assignment,
+New → Assigned → In Progress → Waiting for Customer → Resolved →
+Closed; see `docs/API.md`'s Customer requests section) are Done, the
+first four tasks of Epic E05 (Customer and Request Management).
 
 ## Local development infrastructure
 

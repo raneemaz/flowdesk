@@ -701,6 +701,163 @@ display names, consistent with how assignment/status/editing store
 these values (docs/DATABASE.md's `task_histories` section explains
 why `event_type` is a plain string rather than a closed enum).
 
+## Customers (FD-035)
+
+Centralized in `backend/app/customers/`, all five endpoints gated by
+`require_permission(Permission.CUSTOMER_MANAGE)` from the
+Authorization section above (`full` for Owner/Manager/Accountant/
+CustomerSupport, `none` for Employee - already finalized by FD-015,
+nothing added to the matrix here). Unlike `TASK_VIEW_UPDATE`, this
+permission has no scope other than `full`/`none` for any role, so
+there's no per-record reach restriction to apply beyond the
+`require_permission` gate itself - the same simple shape as
+`DEPARTMENT_MANAGE`.
+
+**`DELETE` is a soft archive, never a real row delete** - spec Section
+10.3 rule #5 and Section 26's own acceptance criterion ("archived
+customers stay linked to historical requests/invoices"). It sets
+`status` to `archived`; the row survives untouched, so a future
+`CustomerRequest`/`Invoice` (FD-036+) can still reference it. `PATCH`
+can set `status` back to `active` (reactivation) - there's no separate
+"reactivate" endpoint, same convention `DELETE /departments/{id}`
+already established.
+
+- `POST /organizations/{organization_id}/customers` - create. Body:
+  `{"name": "...", "email"?: "...", "phone"?: "...", "company"?: "...",
+  "address"?: "...", "notes"?: "..."}`. `name` is required and
+  trimmed (a whitespace-only name is a `422`, not silently accepted);
+  every other field is optional (FD-034's own judgment call - see
+  `docs/DATABASE.md`'s customers section). `email`, if given, must be a
+  syntactically valid address. `status` isn't accepted here - a new
+  customer always starts `active`.
+- `GET /organizations/{organization_id}/customers` - search, filter,
+  paginate. **`search`** matches `name`/`email`/`phone`/`company` (an
+  `OR` across all four, case-insensitive) - the columns FD-034's own
+  model docstring indexed specifically for this; `address`/`notes` are
+  never searched (free-form, not indexed). **`status`** filters to
+  `active` or `archived`; omitted, the list includes both - archiving
+  never hides history, same convention `list_departments`/the employee
+  directory's own unfiltered `status` default already established.
+  Sorted by name. **Pagination** uses the contract from the Pagination
+  section above.
+- `GET /organizations/{organization_id}/customers/{customer_id}` -
+  view one. Same gate as the list endpoint - viewing one customer
+  isn't a different capability from viewing many. `404` if the
+  customer doesn't exist or belongs to a different organization.
+- `PATCH /organizations/{organization_id}/customers/{customer_id}` -
+  partial update. Only fields actually present in the request body are
+  changed (`model_dump(exclude_unset=True)`, never a plain
+  `model_dump()`) - `email`/`phone`/`company`/`address`/`notes` accept
+  an explicit `null` to clear them, but `name` and `status` don't
+  (neither is a "clearable" concept) and return `422` if sent as
+  `null`. Same `404` behavior as `GET` for a missing/cross-tenant
+  customer.
+- `DELETE /organizations/{organization_id}/customers/{customer_id}` -
+  archive (see above). Idempotent - archiving an already-archived
+  customer is a `200` no-op, not an error. Same `404` behavior as
+  `PATCH` for a missing/cross-tenant customer.
+
+## Customer requests (FD-037)
+
+Centralized in `backend/app/customer_requests/`. Create/retrieve,
+assignment, and the status workflow, all in one task - unlike Task's
+module, the backlog has no separate "request creation/retrieval" task
+(FD-026's equivalent), so FD-037 bundles what FD-026/FD-027/FD-028 did
+separately for tasks. Comments and history retrieval are FD-038, a
+separate future task (the `RequestComment`/`RequestHistory` models
+already exist from FD-036, but nothing writes or reads them yet beyond
+this module's own automatic history entries).
+
+**Every endpoint is gated by a single `require_permission(Permission.CUSTOMER_REQUEST_MANAGE)`**
+(`full` for Owner/Manager/CustomerSupport, `assigned` for Employee,
+`none` for Accountant - already finalized by FD-015). Unlike Task's
+two-permission split (`TASK_CREATE_ASSIGN` vs `TASK_VIEW_UPDATE`),
+there's only one permission here, so **creating and assigning a
+request both explicitly require `full` scope** (checked in
+`app/customer_requests/service.py`, not by the decorator, since
+`assigned` is a real granted scope here, not `none`) - an `assigned`-scope
+caller (Employee) gets `403` from creation/assignment even though the
+same decorator lets them reach the list/detail/status endpoints.
+
+**`POST /organizations/{organization_id}/customer-requests`** - create.
+Body: `{"customer_id": "uuid", "title": "...", "description"?: "...",
+"category"?: "...", "priority"?: "low"|"medium"|"high"|"urgent",
+"due_date"?: "YYYY-MM-DD"}`. `customer_id` must reference an *active*
+`Customer` in this organization (`422 INVALID_CUSTOMER` otherwise -
+missing, cross-org, and archived all rejected identically) - a new
+request can't be logged against an archived customer, though an
+existing request stays fully usable if its customer is archived later.
+Deliberately does not accept `assignee_membership_id` (FR-020's own
+"assign" is a separate action) or `status` (always starts `new`).
+`creator_membership_id` is always the caller's own membership, never
+accepted from the request body.
+
+**`GET /organizations/{organization_id}/customer-requests`** - search,
+filter, paginate. Filters: `customer_id`, `assignee_membership_id`,
+`category`, `priority`, `status`, `due_date_from`/`due_date_to`
+(inclusive range, `422` if inverted) - all optional. `assigned` scope
+forces the query to the caller's own requests regardless of any
+`assignee_membership_id` supplied, same oracle-prevention convention
+Task's own list endpoint established. Sorted by `created_at`
+descending. **Pagination** uses the contract from the Pagination
+section above.
+
+**`GET /organizations/{organization_id}/customer-requests/{request_id}`**
+- view one. Same object-level reach as the list endpoint
+(`check_scope_allows`): a request outside the caller's `assigned`
+reach is `403`, not `404` - same `can_assign_role`-style distinction
+established throughout this project.
+
+**`PATCH /organizations/{organization_id}/customer-requests/{request_id}/assign`**
+- assign/reassign/unassign. Body: `{"assignee_membership_id": "uuid" |
+null}` - required, `null` unassigns. `full` scope only. Must reference
+an *active* membership in this organization if non-null (`422
+INVALID_ASSIGNEE` otherwise). Idempotent - reassigning to the
+assignee a request already has is a `200` no-op with no history
+written.
+
+**Assignment and status are not fully independent here**, unlike Task:
+`assigned` is itself one of `RequestStatus`'s values (FR-019). The
+*first* time a request gets a real assignee while still `new`, status
+auto-advances to `assigned` too (its own `status_changed` history
+entry, alongside `assignee_changed`). Reassigning a request already
+past `new` never regresses its status - it's just an assignee swap.
+
+**`PATCH /organizations/{organization_id}/customer-requests/{request_id}/status`**
+- the workflow itself (FR-019: `new → assigned → in_progress →
+waiting_for_customer → resolved → closed`). Body: `{"status": "...",
+"resolution_notes"?: "..."}`. Checked in order:
+
+1. **Object-level reach** - same as the detail endpoint; an
+   `assigned`-scope caller acting on a request that isn't theirs is
+   `403` before anything else.
+2. **`resolution_notes`**, if given, is applied regardless of whether
+   `status` itself changes (its own `resolution_notes_changed` history
+   entry if the value actually changed) - there's no separate
+   general-editing endpoint for requests to carry it instead.
+3. **Idempotent no-op on status** - requesting the status a request
+   already has writes no `status_changed` entry (`resolution_notes`
+   may still have been applied in step 2).
+4. **Transition-graph validity** (`422 INVALID_STATUS_TRANSITION`) -
+   strictly linear, no skipping a stage and no backward move (FR-019
+   states a single chain with no named exception, unlike Task's own
+   workflow which explicitly names one backward loop and an any-state
+   escape hatch - neither exists here, so neither is invented).
+5. **`assigned`-scope callers are further restricted** to the two
+   "forward progress" moves an assignee drives themselves (`assigned →
+   in_progress`, `in_progress → waiting_for_customer`); resolving and
+   closing are `full`-scope only - this task's own acceptance criterion
+   ("unauthorized users can't close requests").
+6. **Data integrity**: transitioning to `assigned` requires
+   `assignee_membership_id` to already be set (`422
+   INVALID_STATUS_TRANSITION` otherwise) - guards against reaching an
+   inconsistent `status=assigned` with no actual assignee through this
+   endpoint directly, bypassing `/assign`'s own auto-advance.
+
+A real transition writes a `RequestHistory` row (`event_type:
+"status_changed"`, raw `previous_value`/`new_value` status strings,
+`actor_membership_id` the caller).
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -731,6 +888,16 @@ why `event_type` is a plain string rather than a closed enum).
 | POST | `/api/v1/organizations/{organization_id}/tasks/{task_id}/comments` | Post a comment on a task | FD-030 |
 | GET | `/api/v1/organizations/{organization_id}/tasks/{task_id}/comments` | List a task's comments, chronologically | FD-030 |
 | GET | `/api/v1/organizations/{organization_id}/tasks/{task_id}/history` | List a task's history, chronologically (read-only) | FD-031 |
+| POST | `/api/v1/organizations/{organization_id}/customers` | Create a customer | FD-035 |
+| GET | `/api/v1/organizations/{organization_id}/customers` | Search/filter/paginate the org's customers | FD-035 |
+| GET | `/api/v1/organizations/{organization_id}/customers/{customer_id}` | View one customer | FD-035 |
+| PATCH | `/api/v1/organizations/{organization_id}/customers/{customer_id}` | Update a customer | FD-035 |
+| DELETE | `/api/v1/organizations/{organization_id}/customers/{customer_id}` | Archive a customer (soft) | FD-035 |
+| POST | `/api/v1/organizations/{organization_id}/customer-requests` | Create a customer request | FD-037 |
+| GET | `/api/v1/organizations/{organization_id}/customer-requests` | Search/filter/paginate the org's customer requests | FD-037 |
+| GET | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}` | View one customer request | FD-037 |
+| PATCH | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}/assign` | Assign/reassign/unassign a request | FD-037 |
+| PATCH | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}/status` | Move a request through its status workflow | FD-037 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |

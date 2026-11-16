@@ -1569,6 +1569,627 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/customers:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Customers]
+      summary: Create a customer
+      description: >
+        Requires CUSTOMER_MANAGE (see the Authorization section of
+        docs/API.md - Owner/Manager/Accountant/CustomerSupport; never
+        Employee). Only `name` is required - email/phone/company/
+        address/notes are all optional (see docs/DATABASE.md's
+        customers section for why). A new customer always starts
+        `active`; `status` isn't accepted here.
+      operationId: postOrganizationCustomers
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCustomerRequest"
+      responses:
+        "201":
+          description: Customer created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CustomerPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller lacks CUSTOMER_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (blank name, or a malformed email)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    get:
+      tags: [Customers]
+      summary: Search, filter, and paginate the organization's customers
+      description: >
+        Requires CUSTOMER_MANAGE. `search` matches name/email/phone/
+        company (see docs/DATABASE.md's customers section for why those
+        four columns are indexed). Includes both active and archived
+        customers by default - archiving never hides history; `status`
+        narrows it down.
+      operationId: getOrganizationCustomers
+      parameters:
+        - name: search
+          in: query
+          schema: { type: string, maxLength: 255 }
+        - name: status
+          in: query
+          schema: { type: string, enum: [active, archived] }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: A page of the organization's customers, sorted by name
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CustomerPublic"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without CUSTOMER_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown query param or out-of-range page/per_page)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/customers/{customer_id}:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: customer_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Customers]
+      summary: View one customer
+      description: Requires CUSTOMER_MANAGE - same reach as the list endpoint.
+      operationId: getOrganizationCustomer
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Customer retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CustomerPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without CUSTOMER_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Customer does not exist, or belongs to a different organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    patch:
+      tags: [Customers]
+      summary: Update a customer
+      description: >
+        Partial update - only fields present in the request body
+        change. email/phone/company/address/notes accept an explicit
+        null to clear them; name/status don't (422 if sent as null).
+        status may be set back to "active" here (reactivation) - there
+        is no separate reactivate endpoint.
+      operationId: patchOrganizationCustomer
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCustomerRequest"
+      responses:
+        "200":
+          description: Customer updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CustomerPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller lacks CUSTOMER_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Customer does not exist, or belongs to a different organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (blank/null name, null status, or a malformed email)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    delete:
+      tags: [Customers]
+      summary: Archive a customer (soft)
+      description: >
+        Sets status to archived - never deletes the row. Idempotent: a
+        customer already archived is a 200 no-op, not an error.
+        Archived customers stay linked to their historical requests/
+        invoices (Section 26's own acceptance criterion).
+      operationId: deleteOrganizationCustomer
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Customer archived
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CustomerPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller lacks CUSTOMER_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Customer does not exist, or belongs to a different organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/customer-requests:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [CustomerRequests]
+      summary: Create a customer request
+      description: >
+        Requires CUSTOMER_REQUEST_MANAGE at full scope (Owner/Manager/
+        CustomerSupport) - checked explicitly in the service layer,
+        since this permission's assigned scope (Employee) is not none
+        and would otherwise pass the decorator. customer_id must
+        reference an active Customer in this organization. Always
+        creates an unassigned request (status new) - assignment is a
+        separate action. creator_membership_id is always the caller's
+        own membership, never accepted in the body.
+      operationId: postOrganizationCustomerRequests
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCustomerRequestRequest"
+      responses:
+        "201":
+          description: The created customer request
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CustomerRequestPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller's scope is none or assigned (not full)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (missing/blank title, missing customer_id, or customer_id not an active customer in this org)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    get:
+      tags: [CustomerRequests]
+      summary: Search, filter, and paginate the organization's customer requests
+      description: >
+        Requires CUSTOMER_REQUEST_MANAGE (never none). full scope
+        (Owner/Manager/CustomerSupport) sees every request; assigned
+        scope (Employee) sees only requests assigned to the caller,
+        regardless of any assignee_membership_id filter supplied
+        (silently overridden, not rejected).
+      operationId: getOrganizationCustomerRequests
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: customer_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: assignee_membership_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: category
+          in: query
+          schema: { type: string, maxLength: 255 }
+        - name: priority
+          in: query
+          schema: { type: string, enum: [low, medium, high, urgent] }
+        - name: status
+          in: query
+          schema: { type: string, enum: [new, assigned, in_progress, waiting_for_customer, resolved, closed] }
+        - name: due_date_from
+          in: query
+          schema: { type: string, format: date }
+        - name: due_date_to
+          in: query
+          schema: { type: string, format: date }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: A page of the organization's customer requests
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CustomerRequestPublic"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without CUSTOMER_REQUEST_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown query param, out-of-range page/per_page, or an inverted due_date range)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/customer-requests/{request_id}:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: request_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [CustomerRequests]
+      summary: View one customer request
+      description: >
+        Requires CUSTOMER_REQUEST_MANAGE. full scope may view any
+        request in the organization; assigned scope may only view a
+        request assigned to the caller (403 if it exists in this org
+        but isn't theirs).
+      operationId: getOrganizationCustomerRequest
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The customer request
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CustomerRequestPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Request exists in this organization but the caller's assigned scope doesn't reach it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or the request is missing/cross-organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/customer-requests/{request_id}/assign:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: request_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [CustomerRequests]
+      summary: Assign, reassign, or unassign a customer request
+      description: >
+        Requires CUSTOMER_REQUEST_MANAGE at full scope (checked
+        explicitly in the service layer, same reasoning as POST). The
+        first time a request gets a real assignee while still new,
+        status auto-advances to assigned too (its own history entry) -
+        reassigning a request already past new never regresses status.
+        Records a RequestHistory row (event_type: assignee_changed)
+        unless the request is a no-op.
+      operationId: patchOrganizationCustomerRequestAssign
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignCustomerRequestRequest"
+      responses:
+        "200":
+          description: The customer request with its updated assignee
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CustomerRequestPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, or caller's scope is none or assigned (not full)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or the request is missing/cross-organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (missing field, or assignee_membership_id not an active membership in this organization)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/customer-requests/{request_id}/status:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: request_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [CustomerRequests]
+      summary: Move a customer request through its status workflow
+      description: >
+        Requires CUSTOMER_REQUEST_MANAGE (never none). Strictly linear
+        workflow (new -> assigned -> in_progress -> waiting_for_customer
+        -> resolved -> closed), no skipping a stage. full scope (Owner/
+        Manager/CustomerSupport) may make any transition the graph
+        allows; assigned scope (the request's own assignee) may only
+        drive the two forward-progress moves (assigned -> in_progress,
+        in_progress -> waiting_for_customer) - resolving and closing
+        are full-scope only. resolution_notes, if given, is applied
+        regardless of whether status changes. See docs/API.md's
+        Customer requests section for the full transition table.
+      operationId: patchOrganizationCustomerRequestStatus
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCustomerRequestStatusRequest"
+      responses:
+        "200":
+          description: The customer request with its updated status
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CustomerRequestPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token, caller's scope is none, or an assigned-scope caller attempted a transition reserved to full scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or the request is missing/cross-organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown status value, no such transition from the current status, or assigned targeted without assignee_membership_id already set)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /health:
     get:
       tags: [Health]
@@ -2099,6 +2720,222 @@ components:
             FD-033 (computed, not stored): true when due_date has
             passed in the organization's own timezone and status is
             neither completed nor cancelled.
+
+    CreateCustomerRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        email:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          maxLength: 50
+          nullable: true
+        company:
+          type: string
+          maxLength: 255
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+
+    UpdateCustomerRequest:
+      type: object
+      description: >
+        Partial update - every field optional. email/phone/company/
+        address/notes accept an explicit null to clear them; name/
+        status may not be sent as null (422 if they are).
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        email:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          maxLength: 50
+          nullable: true
+        company:
+          type: string
+          maxLength: 255
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, archived]
+
+    CustomerPublic:
+      type: object
+      required: [id, organization_id, name, email, phone, company, address, notes, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        company:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, archived]
+        created_at:
+          type: string
+          format: date-time
+
+    CreateCustomerRequestRequest:
+      type: object
+      description: >
+        Deliberately does not accept assignee_membership_id (its own
+        /assign endpoint's job) or status (always new at creation).
+      required: [customer_id, title]
+      additionalProperties: false
+      properties:
+        customer_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+        category:
+          type: string
+          maxLength: 255
+          nullable: true
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        due_date:
+          type: string
+          format: date
+          nullable: true
+
+    AssignCustomerRequestRequest:
+      type: object
+      description: >
+        assignee_membership_id is required (not optional-to-omit) -
+        this endpoint does exactly one thing, so the caller always
+        states the intended assignee; null unassigns.
+      required: [assignee_membership_id]
+      additionalProperties: false
+      properties:
+        assignee_membership_id:
+          type: string
+          format: uuid
+          nullable: true
+
+    UpdateCustomerRequestStatusRequest:
+      type: object
+      description: >
+        status is required and never null - every request always has
+        exactly one status. resolution_notes is optional and applied
+        regardless of whether status itself changes.
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [new, assigned, in_progress, waiting_for_customer, resolved, closed]
+        resolution_notes:
+          type: string
+          nullable: true
+
+    CustomerRequestPublic:
+      type: object
+      required:
+        [
+          id,
+          organization_id,
+          customer_id,
+          title,
+          description,
+          category,
+          status,
+          priority,
+          creator_membership_id,
+          assignee_membership_id,
+          due_date,
+          resolution_notes,
+          created_at,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [new, assigned, in_progress, waiting_for_customer, resolved, closed]
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        creator_membership_id:
+          type: string
+          format: uuid
+        assignee_membership_id:
+          type: string
+          format: uuid
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        resolution_notes:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
 
     EmployeePublic:
       type: object

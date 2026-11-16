@@ -86,6 +86,13 @@ class Customer(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
     )
 
     organization = relationship("Organization", back_populates="customers")
+    # No cascade/passive_deletes here, unlike Organization.customers -
+    # a customers row is never hard-deleted by this app (only archived,
+    # FD-035), and CustomerRequest.customer_id's own composite FK is
+    # RESTRICT (see that model's docstring), so this stays a read-only
+    # browsing convenience, the same style Department.employee_profiles
+    # (FD-019) already established.
+    requests = relationship("CustomerRequest", back_populates="customer", foreign_keys="CustomerRequest.customer_id")
 
     @validates("name")
     def _normalize_name(self, key, value):

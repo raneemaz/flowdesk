@@ -5,6 +5,8 @@ from flask import Flask
 
 from app.auth.routes import auth_bp
 from app.config import API_PREFIX, CONFIG_BY_NAME
+from app.customer_requests.routes import customer_requests_bp
+from app.customers.routes import customers_bp
 from app.departments.routes import departments_bp
 from app.docs.routes import build_swagger_ui_blueprint, docs_bp
 from app.employees.routes import employees_bp
@@ -54,6 +56,8 @@ def register_blueprints(app):
     app.register_blueprint(departments_bp, url_prefix=API_PREFIX)
     app.register_blueprint(employees_bp, url_prefix=API_PREFIX)
     app.register_blueprint(tasks_bp, url_prefix=API_PREFIX)
+    app.register_blueprint(customers_bp, url_prefix=API_PREFIX)
+    app.register_blueprint(customer_requests_bp, url_prefix=API_PREFIX)
     app.register_blueprint(health_bp, url_prefix=API_PREFIX)
     app.register_blueprint(docs_bp, url_prefix=API_PREFIX)
     app.register_blueprint(build_swagger_ui_blueprint())

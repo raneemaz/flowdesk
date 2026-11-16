@@ -444,4 +444,121 @@ the constraint is actually declared.
 customers (`CASCADE`) -
 `test_deleting_an_organization_cascades_to_its_customers` and the
 cross-tenant-isolation equivalent prove it.
-confirms rows inserted out of order still come back sorted.
+
+### `customer_requests` (FD-036)
+
+Fields per spec Section 10.1's CustomerRequest entity and FR-018.
+Model + migration only so far - workflow enforcement, assignment, and
+comments/history recording are FD-037/FD-038, separate future tasks.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK - **also** part of the composite unique constraint below |
+| `organization_id` | UUID | required, FK -> `organizations.id`, `ON DELETE CASCADE`, indexed - **also** part of both composite FKs below |
+| `customer_id` | UUID | required, indexed - **composite FK**, see below |
+| `title` | varchar(255) | required, non-blank (`@validates`) |
+| `description` | text, nullable | |
+| `category` | varchar(255), nullable, indexed | free-form, not an enum - FR-018 never implies a fixed set, and FlowDesk is meant to be generic across industries (Section 1); indexed anyway as a filterable facet, unlike `description`/`resolution_notes` |
+| `status` | enum (`request_status`) | `new` / `assigned` / `in_progress` / `waiting_for_customer` / `resolved` / `closed` - FR-019's workflow; default `new`. Transition enforcement is FD-037's job |
+| `priority` | enum (`request_priority`) | `low` / `medium` / `high` / `urgent` - a judgment call like `task_priority`, kept as its own distinct enum type rather than reusing it (this codebase's convention: one enum per model, e.g. `customer_status` vs `department_status`). Default `medium` |
+| `creator_membership_id` | UUID | required, indexed - **composite FK**, see below |
+| `assignee_membership_id` | UUID, nullable | FK -> `memberships.id`, `ON DELETE SET NULL`, indexed |
+| `due_date` | date, nullable | indexed |
+| `resolution_notes` | text, nullable | |
+| `created_at`, `updated_at` | timestamptz | |
+
+No `department_id` - unlike `tasks`, FR-018 never lists a department
+field for a request.
+
+**`creator_membership_id` is DB-enforced to the correct organization -
+a composite FK**, identical technique and reasoning to
+`tasks.creator_membership_id` (FD-025): `RESTRICT` (no `ON DELETE`
+clause), since who created a request is audit-relevant history that
+must never silently vanish or drag the request down with it. Shortened
+to `fk_customer_requests_creator_membership_id_organization_id`
+(dropping the usual `..._memberships` suffix) - the full name exceeds
+Postgres's 63-byte identifier limit once combined with this table's
+own (longer) name.
+
+**`customer_id` is also DB-enforced to the correct organization - a
+second composite FK**, against `customers.(id, organization_id)` via
+that table's own `uq_customers_id_organization_id` constraint (FD-034,
+built specifically for this). Also `RESTRICT`: `customer_id` is
+`NOT NULL` (every request belongs to exactly one customer), so `CASCADE`
+would silently delete request history the moment a `customers` row was
+removed (Section 10.3 rule #5's "never cascade-delete... audit
+history"), and `SET NULL` isn't possible for a required column. In
+practice a `customers` row is never hard-deleted by this app (FD-035's
+`DELETE` only archives it), so this mostly guards a hypothetical direct
+deletion - but it's exactly what Section 26's acceptance criterion
+("archived customers stay linked to historical requests") requires.
+`test_deleting_the_customer_is_blocked_while_it_still_has_requests`
+proves it.
+
+**`assignee_membership_id` is *not* DB-constrained to this request's
+own organization** - same accepted gap as `tasks.assignee_membership_id`
+(FD-025): a composite FK here would need `ON DELETE SET NULL`, which
+conflicts with `organization_id` staying `NOT NULL`. Deferred to a
+future service layer (FD-037), same pattern. **No ORM `relationship()`
+attribute**, for the same "don't trust the ORM traversal" reason.
+
+**Cascade behavior:** deleting an `Organization` **deletes** its
+customer requests (`CASCADE`). Deleting the assignee's `Membership`
+only clears `assignee_membership_id` (`SET NULL`) - a request is
+organization history and survives it. Deleting the **creator's**
+`Membership`, or the **customer** itself, is **blocked** (`RESTRICT`)
+while either still has requests - see above.
+
+### `request_comments` / `request_histories` (FD-036)
+
+Both are children of `customer_requests`, with the exact same shape
+and dual-FK pattern as `task_comments`/`task_histories` against
+`tasks` (FD-025): `organization_id` is independently FK'd to
+`organizations.id` (`ON DELETE CASCADE`) **and** composite-FK'd to
+`customer_requests.(id, organization_id)` (`ON DELETE CASCADE`), so
+a comment's or history entry's `organization_id` can never actually
+diverge from its parent request's real `organization_id`. Both
+composite FK names are shortened to
+`fk_request_comments_request_id_organization_id` and
+`fk_request_histories_request_id_organization_id` respectively (same
+63-byte-limit reasoning as `customer_requests.creator_membership_id`
+above).
+`test_request_comment_organization_id_must_match_its_requests_organization`
+and its `request_histories` equivalent prove the cross-tenant case is
+rejected.
+
+| Column (`request_comments`) | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `organization_id` | UUID | required, dual-FK'd as above, indexed |
+| `request_id` | UUID | required, part of the composite FK, indexed |
+| `author_membership_id` | UUID, nullable | FK -> `memberships.id`, `ON DELETE SET NULL`, indexed - a comment is history and must outlive its author's membership row |
+| `body` | text | required, non-blank (`@validates`) |
+| `created_at`, `updated_at` | timestamptz | |
+
+No `is_internal` column - unlike the hint in FD-038's own task title
+("internal comments never customer-exposed"), there's no
+customer-portal concept anywhere in this backlog for a comment to ever
+be exposed *to* in the first place, so every comment here is
+implicitly internal; access restriction itself is FD-038's job, not
+this model-only task's.
+
+| Column (`request_histories`) | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `organization_id` | UUID | required, dual-FK'd as above, indexed |
+| `request_id` | UUID | required, part of the composite FK, indexed |
+| `actor_membership_id` | UUID, nullable | FK -> `memberships.id`, `ON DELETE SET NULL`, indexed |
+| `event_type` | varchar(100), indexed | plain string, not a closed enum - FD-037/FD-038 haven't been built yet and are what will actually define the event taxonomy |
+| `previous_value`, `new_value` | text, nullable | free-form |
+| `created_at` | timestamptz | **no `updated_at`** - see the Conventions section above |
+
+**Cascade behavior (both tables):** deleting a `CustomerRequest`
+**deletes** its comments/history (`CASCADE` - neither has identity
+independent of its request). Deleting the author's/actor's
+`Membership` only clears `author_membership_id`/`actor_membership_id`
+(`SET NULL`). `CustomerRequest.comments`/`.history` are ORM
+relationships (`cascade="all, delete-orphan"`), with `.history`
+ordered by `created_at` (chronological) -
+`test_request_relationship_exposes_its_history_in_chronological_order`
+proves it.
