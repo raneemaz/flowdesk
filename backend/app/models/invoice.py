@@ -11,6 +11,17 @@ from app.extensions import db
 from app.models.base import TimestampMixin, UUIDPrimaryKeyMixin
 
 
+class DiscountType(str, enum.Enum):
+    """FD-041: how `discount_value` is interpreted when computing
+    `discount_total`. Resolves Section 35 open decision #6's discount
+    half, at the user's explicit direction - FD-040's schema only had
+    `discount_total` itself (a computed output, per spec Section
+    10.1), with no input to compute it *from*; this is that input."""
+
+    FLAT = "flat"
+    PERCENTAGE = "percentage"
+
+
 class InvoiceStatus(str, enum.Enum):
     """FR-025's six statuses, listed verbatim. Transition enforcement
     itself (which moves are legal, and the "once issued, financial
@@ -34,9 +45,18 @@ class InvoiceStatus(str, enum.Enum):
 
 class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
     """FD-040. Fields per spec Section 10.1's Invoice entity and
-    FR-023. Model only, like FD-025/FD-034/FD-036 before it -
-    calculations (FD-041), the status lifecycle and controlled editing
-    (FD-042), and payments (FD-043) are separate future tasks.
+    FR-023. Model only, like FD-025/FD-034/FD-036 before it - the
+    status lifecycle and controlled editing (FD-042) and payments
+    (FD-043) are separate future tasks.
+
+    `discount_type`/`discount_value` (added by FD-041, at the user's
+    explicit direction resolving Section 35 open decision #6's
+    discount half) are the *input*: either a flat currency amount or a
+    percentage of `subtotal`. `discount_total` stays this entity's own
+    computed *output* column - always a flat amount regardless of
+    which type produced it, recomputed by
+    `app.invoices.service.recalculate_invoice` whenever line items or
+    the discount input change.
 
     `currency` - Section 35 open decision #5 (single-currency-per-org
     vs. multi-currency invoices) is NOT resolved here: the column
@@ -120,6 +140,25 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0.00"), server_default="0.00")
     tax_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0.00"), server_default="0.00")
+    # `discount_type`/`discount_value` are the input (FD-041); `discount_total`
+    # above stays the computed output (FD-040's own field, per spec
+    # Section 10.1) - always a flat currency amount regardless of
+    # which type produced it, kept in sync by
+    # app.invoices.service.recalculate_invoice.
+    discount_type: Mapped[DiscountType] = mapped_column(
+        Enum(
+            DiscountType,
+            name="discount_type",
+            native_enum=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        default=DiscountType.FLAT,
+        server_default=DiscountType.FLAT.value,
+    )
+    discount_value: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
+    )
     discount_total: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
     )
@@ -159,6 +198,8 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
             "currency": self.currency,
             "subtotal": str(self.subtotal),
             "tax_total": str(self.tax_total),
+            "discount_type": self.discount_type.value,
+            "discount_value": str(self.discount_value),
             "discount_total": str(self.discount_total),
             "total": str(self.total),
             "notes": self.notes,

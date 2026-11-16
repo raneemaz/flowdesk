@@ -113,7 +113,10 @@ assignment, status controls; see `frontend/README.md`'s own section)
 are Done, completing Epic E05 (Customer and Request Management).
 FD-040 (Invoice/InvoiceLineItem/Payment models — decimal money types,
 invoice number unique per org; see `docs/DATABASE.md`'s own sections)
-is Done, the first task of Epic E06 (Invoice and Payment Management).
+and FD-041 (invoice calculations — server-authoritative line totals,
+subtotal, tax summed at full precision and rounded once, flat/percentage
+discount; see `docs/DATABASE.md`'s own section) are Done, the first two
+tasks of Epic E06 (Invoice and Payment Management).
 
 ## Local development infrastructure
 

@@ -3,7 +3,7 @@ from app.models.customer_request import CustomerRequest, RequestComment, Request
 from app.models.department import Department, DepartmentStatus
 from app.models.employee_profile import EmployeeProfile, EmployeeStatus
 from app.models.invitation import Invitation
-from app.models.invoice import Invoice, InvoiceLineItem, InvoiceStatus, Payment
+from app.models.invoice import DiscountType, Invoice, InvoiceLineItem, InvoiceStatus, Payment
 from app.models.membership import Membership, MembershipRole, MembershipStatus
 from app.models.organization import Organization
 from app.models.task import Task, TaskComment, TaskHistory, TaskPriority, TaskStatus
@@ -13,6 +13,7 @@ __all__ = [
     "Customer",
     "CustomerRequest",
     "CustomerStatus",
+    "DiscountType",
     "Department",
     "DepartmentStatus",
     "EmployeeProfile",

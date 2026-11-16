@@ -563,11 +563,11 @@ ordered by `created_at` (chronological) -
 `test_request_relationship_exposes_its_history_in_chronological_order`
 proves it.
 
-### `invoices` (FD-040)
+### `invoices` (FD-040/FD-041)
 
 Fields per spec Section 10.1's Invoice entity and FR-023. Model +
-migration only so far - calculations (FD-041), the status lifecycle
-and controlled editing (FD-042), and payments (FD-043) are separate
+migration + calculations (FD-041) only so far - the status lifecycle
+and controlled editing (FD-042), and payments (FD-043), are separate
 future tasks.
 
 | Column | Type | Notes |
@@ -578,22 +578,38 @@ future tasks.
 | `invoice_number` | varchar(50), indexed | required, non-blank (`@validates`) - unique **per organization**, not globally, see below |
 | `status` | enum (`invoice_status`) | `draft` / `sent` / `partially_paid` / `paid` / `overdue` / `cancelled` - FR-025's six values verbatim; default `draft`. Transition enforcement is FD-042's job |
 | `issue_date`, `due_date` | date, nullable | `due_date` indexed. Nullable - a Draft invoice may have neither set yet |
-| `currency` | varchar(3) | required, no default - always explicitly supplied by whichever service layer creates an invoice (FD-041), unlike `organizations.currency`'s own default |
-| `subtotal`, `tax_total`, `discount_total`, `total` | numeric(12,2) | required, default `0.00` - never `NULL` (Section 10.3 rule #4); kept in sync with line items by FD-041's calculation logic |
+| `currency` | varchar(3) | required, no default - always explicitly supplied by whichever service layer creates an invoice, unlike `organizations.currency`'s own default |
+| `subtotal`, `tax_total` | numeric(12,2) | required, default `0.00` - never `NULL` (Section 10.3 rule #4); recomputed from `line_items` by `app.invoices.service.recalculate_invoice` (FD-041) |
+| `discount_type` | enum (`discount_type`) | `flat` / `percentage` (FD-041) - the *input*: how `discount_value` is interpreted. Default `flat` |
+| `discount_value` | numeric(12,2) | required, default `0.00` (FD-041) - the *input*: a flat currency amount, or a percentage of `subtotal`, depending on `discount_type`. Must not be negative - `recalculate_invoice` rejects it with `422 INVALID_DISCOUNT` |
+| `discount_total` | numeric(12,2) | required, default `0.00` - the *output*: always a flat currency amount regardless of `discount_type`, recomputed by `recalculate_invoice` |
+| `total` | numeric(12,2) | required, default `0.00` - `subtotal + tax_total - discount_total`; `recalculate_invoice` rejects a result `< 0` with `422 NEGATIVE_TOTAL` rather than clamping |
 | `notes` | text, nullable | |
 | `payment_terms` | varchar(255), nullable | e.g. "Net 30" |
 | `created_by` | UUID | required, indexed - **composite FK**, see below |
 | `created_at`, `updated_at` | timestamptz | |
 
-**Section 35 open decisions #5 (multi-currency policy) and #6
-(tax/discount rounding) are deliberately NOT resolved by this task** -
-the `currency` column and `Numeric(12, 2)` precision/scale are schema
-choices that hold regardless of which policy FD-041/FD-042 eventually
-enforce; the enforcement itself is pure business logic with no bearing
-on what columns exist. Open decision #7 (void-only vs. credit-note
-corrections) is likewise left to FD-042 - no `CreditNote` entity exists
-anywhere in Section 10.1's own entity list, and `cancelled` (FR-025)
-already covers the terminal "void" outcome for V1.
+**Section 35 open decision #6 (tax/discount rounding) is resolved by
+FD-041, at the user's explicit direction** (not a judgment call):
+discount supports **both** a flat amount and a percentage of
+`subtotal` (`discount_type`/`discount_value`, new in FD-041); per-line
+tax amounts are summed at **full decimal precision** across all line
+items and only the **final sum** is rounded once to 2 decimals
+(`ROUND_HALF_UP`) - never rounded line-by-line before summing. See
+`app/invoices/service.py` and
+`test_recalculate_invoice_sums_tax_at_full_precision_before_rounding_once`,
+which picks amounts where the two policies would disagree, to prove
+the right one is implemented.
+
+**Section 35 open decision #5 (multi-currency policy) is deliberately
+NOT resolved by FD-041** - the `currency` column is a schema choice
+that holds regardless of which policy a future task enforces (e.g.
+restricting invoices to the organization's own currency); FD-041's
+calculation logic is currency-agnostic. Open decision #7 (void-only
+vs. credit-note corrections) is likewise left to FD-042 - no
+`CreditNote` entity exists anywhere in Section 10.1's own entity list,
+and `cancelled` (FR-025) already covers the terminal "void" outcome
+for V1.
 
 **`created_by` and `customer_id` are both DB-enforced to the correct
 organization - composite FKs**, identical technique and `RESTRICT`

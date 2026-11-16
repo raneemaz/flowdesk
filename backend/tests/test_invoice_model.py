@@ -448,6 +448,8 @@ def test_invoice_to_public_dict_shape(db_session):
         "currency": "USD",
         "subtotal": "0.00",
         "tax_total": "0.00",
+        "discount_type": "flat",
+        "discount_value": "0.00",
         "discount_total": "0.00",
         "total": "0.00",
         "notes": None,
