@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { OrganizationSwitcher } from "@/components/OrganizationSwitcher";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
+import { canManageCustomers } from "@/features/customers/permissions";
 import { canManageDepartments } from "@/features/employees/permissions";
+import { canAccessRequests } from "@/features/requests/permissions";
 
 const ROLE_LABELS: Record<string, string> = {
   owner: "Owner",
@@ -57,6 +59,16 @@ export function HomePage() {
             <Link to="/tasks" className="hover:underline">
               Tasks
             </Link>
+            {canManageCustomers(activeMembership.role) && (
+              <Link to="/customers" className="hover:underline">
+                Customers
+              </Link>
+            )}
+            {canAccessRequests(activeMembership.role) && (
+              <Link to="/requests" className="hover:underline">
+                Requests
+              </Link>
+            )}
           </nav>
         </div>
       )}

@@ -107,9 +107,13 @@ sections), and FD-037 (request workflow — create/retrieve, assignment,
 New → Assigned → In Progress → Waiting for Customer → Resolved →
 Closed; see `docs/API.md`'s Customer requests section), and FD-038
 (request comments & history — internal comments never
-customer-exposed by construction; see `docs/API.md`'s own section) are
-Done, the first five tasks of Epic E05 (Customer and Request
-Management).
+customer-exposed by construction; see `docs/API.md`'s own section), and
+FD-039 (customer & request frontend — directory, profile, queue,
+assignment, status controls; see `frontend/README.md`'s own section)
+are Done, completing Epic E05 (Customer and Request Management).
+FD-040 (Invoice/InvoiceLineItem/Payment models — decimal money types,
+invoice number unique per org; see `docs/DATABASE.md`'s own sections)
+is Done, the first task of Epic E06 (Invoice and Payment Management).
 
 ## Local development infrastructure
 

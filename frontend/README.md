@@ -374,6 +374,76 @@ left the in-memory CSRF token (`AuthContext`, FD-017) desynced from
 it immediately, and a real user never hits this outside of this kind of
 heavy manual reload-testing.
 
+## Customer & request frontend - directory/profile/queue/assignment/status (FD-039)
+
+- **No new backend calls** - pure frontend, consuming the already-reviewed
+  FD-034 through FD-038 endpoints (`app/customers/`, `app/customer_requests/`)
+  as-is. `api/customers.ts` and `api/customerRequests.ts` add the usual thin
+  wrapper functions, all scoped by the current organization's id from
+  `OrganizationContext`.
+- **`CustomerListPage`/`CustomerDetailPage`** (`/customers`,
+  `/customers/:customerId`) - directory (search/filter/inline-create) and
+  profile (view/edit/archive). The profile's "Requests" section is FR-022's
+  "customer profile shows request + invoice history" - just the request
+  half for now, since invoices don't exist yet.
+- **`RequestListPage`/`RequestDetailPage`** (`/requests`,
+  `/requests/:requestId`) - queue (search/filter/inline-create) and detail
+  (assign/status/resolution notes/comments/history). No separate "My
+  Requests" view, unlike Task's `MyTasksPage` - `GET /customer-requests`
+  already auto-restricts an Employee (`assigned` scope) to their own
+  requests server-side, so the one queue page serves every role without
+  client-side filtering, the same reasoning `TaskListPage` itself (not a
+  locked view) already relies on.
+- **The one real design decision this task required**: `CUSTOMER_MANAGE`
+  is `none` for Employee (`app/authz/permissions.py`, reviewed at FD-035)
+  - an Employee literally cannot fetch *any* customer record via the API,
+  including the one tied to a request assigned to them. `RequestDetailPage`
+  and `RequestListPage` gate every `getCustomer`/`listCustomers` call
+  behind `canManageCustomers(viewerRole)` and simply omit the Customer
+  field/column for an Employee viewer, rather than attempting the fetch
+  (which would just 403) or working around it - the same "hide a field a
+  viewer's role can't resolve" pattern `TaskDetailPage` already uses for
+  its own Department field.
+- **`features/requests/permissions.ts`** - `canManageRequests` mirrors the
+  backend's inline `_require_full_scope` checks (`CUSTOMER_REQUEST_MANAGE`
+  has no separate create-only permission the way Task's
+  `TASK_CREATE_ASSIGN` does, so create/assign are gated by the same
+  `full`-scope predicate used for everything else); `canAccessRequests`
+  mirrors "not `none`" (everyone except Accountant); `legalNextStatuses`/
+  `statusOptionsFor` mirror `_REQUEST_TRANSITIONS`/
+  `_ASSIGNEE_ALLOWED_TRANSITIONS` line for line, including that resolving
+  and closing are `full`-scope only.
+- **Resolution notes** - a standalone textarea + "Save notes" button on
+  `RequestDetailPage`, visible to anyone who can view the request
+  (including an Employee on their own assigned request) - the backend's
+  `update_request_status` applies `resolution_notes` independently of
+  whether `status` itself changes, so this calls the same endpoint with
+  the request's current status unchanged.
+- Reviewed by `tenant-security-reviewer`: every API call is
+  organization-scoped from context, no request body construction smuggles
+  in a field the current UI hides, the UI-only permission hints never
+  substitute for the backend's own re-validation, and the unpaginated
+  `perPage: 100` name-resolution fetches (customers/employees-for-names)
+  follow the exact same accepted pattern Task's own department/employee
+  lookups already established.
+
+**Verified against the real backend in a real browser**, as both the
+Owner and a freshly-added Employee-role member of the same organization:
+creating a customer from the directory, viewing/editing its profile,
+archiving it; creating a request against that customer from the queue and
+confirming the customer name resolves correctly in the list; assigning an
+unassigned (`new`) request and confirming status auto-advanced to
+`assigned` with both a resolved `assignee_changed` and `status_changed`
+history entry; moving the request through `in_progress`; reassigning it
+to the Employee and confirming status did *not* regress; saving
+resolution notes and confirming the value persists across a reload;
+posting a comment; and, logged in as the Employee, confirming `/`
+shows "Requests" but not "Customers", the queue shows only their own
+request with no Customer column and "You" as the assignee, and the
+detail page shows no Customer field, no Assignee control, and only the
+one legal forward-progress status button - with no `GET .../customers`
+network request made at any point in that session.
+
 ## Setup
 
 ```bash

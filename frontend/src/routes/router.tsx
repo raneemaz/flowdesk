@@ -1,6 +1,8 @@
 import { createBrowserRouter } from "react-router-dom";
 
 import { CreateOrganizationPage } from "@/pages/CreateOrganizationPage";
+import { CustomerDetailPage } from "@/pages/CustomerDetailPage";
+import { CustomerListPage } from "@/pages/CustomerListPage";
 import { DepartmentsPage } from "@/pages/DepartmentsPage";
 import { EmployeeDirectoryPage } from "@/pages/EmployeeDirectoryPage";
 import { EmployeeProfilePage } from "@/pages/EmployeeProfilePage";
@@ -8,6 +10,8 @@ import { HomePage } from "@/pages/HomePage";
 import { LoginPage } from "@/pages/LoginPage";
 import { MyTasksPage } from "@/pages/MyTasksPage";
 import { RegisterPage } from "@/pages/RegisterPage";
+import { RequestDetailPage } from "@/pages/RequestDetailPage";
+import { RequestListPage } from "@/pages/RequestListPage";
 import { TaskBoardPage } from "@/pages/TaskBoardPage";
 import { TaskCalendarPage } from "@/pages/TaskCalendarPage";
 import { TaskDetailPage } from "@/pages/TaskDetailPage";
@@ -30,6 +34,10 @@ export const router = createBrowserRouter([
       { path: "/tasks/calendar", element: <TaskCalendarPage /> },
       { path: "/tasks/mine", element: <MyTasksPage /> },
       { path: "/tasks/:taskId", element: <TaskDetailPage /> },
+      { path: "/customers", element: <CustomerListPage /> },
+      { path: "/customers/:customerId", element: <CustomerDetailPage /> },
+      { path: "/requests", element: <RequestListPage /> },
+      { path: "/requests/:requestId", element: <RequestDetailPage /> },
     ],
   },
 ]);

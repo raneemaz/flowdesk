@@ -93,6 +93,10 @@ class Customer(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
     # browsing convenience, the same style Department.employee_profiles
     # (FD-019) already established.
     requests = relationship("CustomerRequest", back_populates="customer", foreign_keys="CustomerRequest.customer_id")
+    # Same reasoning as `requests` above - Invoice.customer_id's own
+    # composite FK is RESTRICT (see that model's docstring), so this
+    # too stays a read-only browsing convenience, never a cascade path.
+    invoices = relationship("Invoice", back_populates="customer", foreign_keys="Invoice.customer_id")
 
     @validates("name")
     def _normalize_name(self, key, value):

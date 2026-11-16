@@ -562,3 +562,116 @@ relationships (`cascade="all, delete-orphan"`), with `.history`
 ordered by `created_at` (chronological) -
 `test_request_relationship_exposes_its_history_in_chronological_order`
 proves it.
+
+### `invoices` (FD-040)
+
+Fields per spec Section 10.1's Invoice entity and FR-023. Model +
+migration only so far - calculations (FD-041), the status lifecycle
+and controlled editing (FD-042), and payments (FD-043) are separate
+future tasks.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK - **also** part of the composite unique constraint below |
+| `organization_id` | UUID | required, FK -> `organizations.id`, `ON DELETE CASCADE`, indexed - **also** part of both composite FKs below |
+| `customer_id` | UUID | required, indexed - **composite FK**, see below |
+| `invoice_number` | varchar(50), indexed | required, non-blank (`@validates`) - unique **per organization**, not globally, see below |
+| `status` | enum (`invoice_status`) | `draft` / `sent` / `partially_paid` / `paid` / `overdue` / `cancelled` - FR-025's six values verbatim; default `draft`. Transition enforcement is FD-042's job |
+| `issue_date`, `due_date` | date, nullable | `due_date` indexed. Nullable - a Draft invoice may have neither set yet |
+| `currency` | varchar(3) | required, no default - always explicitly supplied by whichever service layer creates an invoice (FD-041), unlike `organizations.currency`'s own default |
+| `subtotal`, `tax_total`, `discount_total`, `total` | numeric(12,2) | required, default `0.00` - never `NULL` (Section 10.3 rule #4); kept in sync with line items by FD-041's calculation logic |
+| `notes` | text, nullable | |
+| `payment_terms` | varchar(255), nullable | e.g. "Net 30" |
+| `created_by` | UUID | required, indexed - **composite FK**, see below |
+| `created_at`, `updated_at` | timestamptz | |
+
+**Section 35 open decisions #5 (multi-currency policy) and #6
+(tax/discount rounding) are deliberately NOT resolved by this task** -
+the `currency` column and `Numeric(12, 2)` precision/scale are schema
+choices that hold regardless of which policy FD-041/FD-042 eventually
+enforce; the enforcement itself is pure business logic with no bearing
+on what columns exist. Open decision #7 (void-only vs. credit-note
+corrections) is likewise left to FD-042 - no `CreditNote` entity exists
+anywhere in Section 10.1's own entity list, and `cancelled` (FR-025)
+already covers the terminal "void" outcome for V1.
+
+**`created_by` and `customer_id` are both DB-enforced to the correct
+organization - composite FKs**, identical technique and `RESTRICT`
+reasoning to `customer_requests.creator_membership_id`/`customer_id`
+(FD-036): who created an invoice, and which customer it belongs to,
+are both audit-relevant financial history that must never silently
+vanish - Section 10.3 rule #5 names financial history explicitly as
+needing this protection, even more so than a support request.
+`test_deleting_the_creators_membership_is_blocked_while_it_still_has_invoices`
+and `test_deleting_the_customer_is_blocked_while_it_still_has_invoices`
+prove it; the cross-tenant equivalents for both prove the composite
+FKs actually enforce same-organization integrity, not just referential
+integrity.
+
+**`invoice_number` uniqueness is organization-scoped, not global** -
+`UniqueConstraint(organization_id, invoice_number)`, this task's own
+title ("unique invoice number per org"), mirroring `memberships`'s own
+org-scoped uniqueness pattern (FD-012).
+`test_invoice_number_is_unique_per_organization` and
+`test_invoice_number_can_repeat_across_different_organizations` prove
+both halves. No invoice-number *generation* scheme (e.g.
+`INV-2026-0001`) is implemented here - that belongs to whichever
+future task actually creates invoices.
+
+**Cascade behavior:** deleting an `Organization` **deletes** its
+invoices (`CASCADE`). Deleting the **creator's** `Membership`, or the
+**customer** itself, is **blocked** (`RESTRICT`) while either still
+has invoices - see above.
+
+### `invoice_line_items` / `payments` (FD-040)
+
+Both are children of `invoices`, with the exact same dual-FK pattern
+as `request_comments`/`request_histories` against `customer_requests`
+(FD-036): `organization_id` is independently FK'd to `organizations.id`
+(`ON DELETE CASCADE`) **and** composite-FK'd to `invoices.(id,
+organization_id)` (`ON DELETE CASCADE`), so neither table's
+`organization_id` can ever actually diverge from its parent invoice's
+real one.
+`test_line_item_organization_id_must_match_its_invoices_organization`
+and its `payments` equivalent prove the cross-tenant case is rejected.
+
+| Column (`invoice_line_items`) | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `organization_id` | UUID | required, dual-FK'd as above, indexed |
+| `invoice_id` | UUID | required, part of the composite FK, indexed |
+| `description` | varchar(500) | required, non-blank (`@validates`) |
+| `quantity` | numeric(10,2) | required, no default - a line item's whole reason to exist is to carry a priced amount |
+| `unit_price` | numeric(12,2) | required, no default |
+| `tax_rate` | numeric(5,2), nullable | a percentage (e.g. `8.25` = 8.25%) - the one field FR-024 itself marks "(opt.)" |
+| `line_total` | numeric(12,2) | required, no default - computed by FD-041, never left for the DB to infer |
+| `created_at`, `updated_at` | timestamptz | |
+
+| Column (`payments`) | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `organization_id` | UUID | required, dual-FK'd as above, indexed |
+| `invoice_id` | UUID | required, part of the composite FK, indexed |
+| `amount` | numeric(12,2) | required, no default - validated (never exceeding the outstanding balance) by FD-043, not this model |
+| `payment_date` | date | required |
+| `method` | varchar(50) | required, non-blank (`@validates`) - plain string, not a closed enum, same "no implied fixed set" reasoning as `customer_requests.category` (FD-036) |
+| `reference` | varchar(255), nullable | e.g. a check/transaction number - FR-026's own "(opt.)" field |
+| `notes` | text, nullable | |
+| `recorded_by` | UUID | required, indexed - **composite FK**, see below |
+| `created_at`, `updated_at` | timestamptz | |
+
+**`recorded_by` is DB-enforced to the correct organization - a
+composite FK**, identical technique and `RESTRICT` reasoning to
+`invoices.created_by` above - who recorded a payment is itself
+audit-relevant financial history.
+`test_deleting_the_recorders_membership_is_blocked_while_it_still_has_payments`
+proves it.
+
+**Cascade behavior (both tables):** deleting an `Invoice` **deletes**
+its line items/payments (`CASCADE` - neither has identity independent
+of its invoice). `Invoice.line_items`/`.payments` are ORM relationships
+(`cascade="all, delete-orphan"`). No `updated_at`-free append-only
+treatment here (unlike `task_histories`/`request_histories`) - both
+tables use the standard `TimestampMixin`, since a line item or a
+recorded payment, unlike a history entry, isn't itself an audit-trail
+row describing a change to something else.
