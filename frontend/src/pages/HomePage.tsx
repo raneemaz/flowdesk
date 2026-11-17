@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { canManageCustomers } from "@/features/customers/permissions";
 import { canManageDepartments } from "@/features/employees/permissions";
+import { canManageInvoices } from "@/features/invoices/permissions";
 import { canAccessRequests } from "@/features/requests/permissions";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -67,6 +68,11 @@ export function HomePage() {
             {canAccessRequests(activeMembership.role) && (
               <Link to="/requests" className="hover:underline">
                 Requests
+              </Link>
+            )}
+            {canManageInvoices(activeMembership.role) && (
+              <Link to="/invoices" className="hover:underline">
+                Invoices
               </Link>
             )}
           </nav>

@@ -5,8 +5,13 @@ domain modules) are added incrementally per the backlog in
 [`docs/FlowDesk_Specification.md`](../docs/FlowDesk_Specification.md);
 the application skeleton (FD-003), authentication - login/register,
 protected routes, auth state (FD-017), organization onboarding -
-creation flow, org switcher (FD-018), and the employee frontend -
-directory, profile, department management (FD-024) - exist so far.
+creation flow, org switcher (FD-018), the employee frontend -
+directory, profile, department management (FD-024), the task
+frontend - list/board/calendar/My Tasks, assignment, comments, history
+(FD-032), the customer & request frontend - directory, profile, queue,
+assignment, status controls (FD-039), and the invoice frontend -
+editor, payment form, balance/status refresh, PDF access (FD-046) -
+exist so far.
 
 ## Stack
 
@@ -35,6 +40,8 @@ frontend/
       organization.ts       OrganizationPublic/MembershipPublic - same
       employee.ts            EmployeePublic/EmployeeProfilePublic/PaginationMeta - same (FD-024)
       department.ts           DepartmentPublic - same (FD-024)
+      invoice.ts               InvoicePublic/InvoiceLineItemPublic/FinancialSummaryPublic - same (FD-046)
+      payment.ts               PaymentPublic/PaymentRecordedData - same (FD-046)
     api/
       client.ts             apiFetch() - hybrid success/error envelope, ApiError;
                              apiFetchWithMeta() - same, plus the `meta` sibling a
@@ -43,6 +50,10 @@ frontend/
       organizations.ts       createOrganization/listOrganizations
       employees.ts            listEmployees/getEmployee/updateEmployeeProfile (FD-024)
       departments.ts          createDepartment/listDepartments/updateDepartment/deactivateDepartment (FD-024)
+      invoices.ts              listInvoices/getInvoice/listInvoiceLineItems/createInvoice/
+                                updateInvoice/issueInvoice/cancelInvoice/getFinancialSummary/
+                                invoicePdfUrl (FD-046)
+      payments.ts              listPayments/recordPayment (FD-046)
     contexts/
       AuthContext.tsx        AuthProvider + useAuth() - current user, session status, CSRF token
       OrganizationContext.tsx  OrganizationProvider + useOrganization() - the caller's
@@ -60,6 +71,13 @@ frontend/
         schemas.ts              Zod schema for the profile-edit form (FD-024)
       departments/
         schemas.ts              Zod schemas for the create/update department forms (FD-024)
+      invoices/
+        constants.ts             status labels/options, discount-type options (FD-046)
+        permissions.ts           canManageInvoices/canViewFinancialReports/canEditInvoice/
+                                  canIssueInvoice/canCancelInvoice/canRecordPayment - UI-only (FD-046)
+        schemas.ts               Zod schemas for the invoice editor and payment forms (FD-046)
+        calculations.ts          previewInvoiceTotals/formatMoney/sumMoney - explicitly
+                                  non-authoritative display-only arithmetic (FD-046)
     routes/
       router.tsx           route table: /login, /register, protected "/", "/organizations/new",
                             "/employees", "/employees/:membershipId", "/departments" (FD-024)
@@ -72,6 +90,9 @@ frontend/
       EmployeeDirectoryPage.tsx    search/filter/paginate the employee directory (FD-024)
       EmployeeProfilePage.tsx      view/edit one employee's profile and status (FD-024)
       DepartmentsPage.tsx          list/create/edit/deactivate departments (FD-024)
+      InvoiceListPage.tsx            search/filter/paginate invoices + financial summary (FD-046)
+      InvoiceFormPage.tsx             create/edit an invoice, incl. the line-item editor (FD-046)
+      InvoiceDetailPage.tsx           view/issue/cancel + payment ledger/form + PDF link (FD-046)
     components/
       OrganizationSwitcher.tsx  dropdown of the caller's active memberships (FD-018)
       ui/
@@ -443,6 +464,85 @@ request with no Customer column and "You" as the assignee, and the
 detail page shows no Customer field, no Assignee control, and only the
 one legal forward-progress status button - with no `GET .../customers`
 network request made at any point in that session.
+
+## Invoice frontend - editor, payment form, balance/status refresh, PDF access (FD-046)
+
+- **A real backend gap was found and fixed *before* writing any
+  frontend code**, not after: no endpoint anywhere returned an
+  invoice's individual line items (description/quantity/unit_price/
+  tax_rate) - `InvoicePublic` only ever carried the computed
+  aggregates (`subtotal`/`tax_total`/...), which an editor cannot work
+  from (it needs to show a caller what they'd previously entered, not
+  just a total). Added `GET .../invoices/{invoice_id}/line-items`
+  (read-only, mirroring the comments/history sub-resource pattern
+  rather than embedding the list in `InvoicePublic` itself, which
+  would otherwise force an N+1 query on every row of the plain list
+  endpoint) - see `docs/API.md`'s Invoices section and
+  `backend/tests/test_invoices_line_items.py`. Reviewed by
+  `tenant-security-reviewer`: clean.
+- **`InvoiceListPage`** (`/invoices`) - search/filter/paginate, plus a
+  financial-summary stats bar (invoiced/collected/outstanding/overdue
+  count) shown only to a viewer with `canViewFinancialReports`
+  (Owner/Accountant) - the same organization-scoped `GET .../invoices/financial-summary`
+  call FD-044 already built, not a new aggregate computed here.
+- **`InvoiceFormPage`** (`/invoices/new` and `/invoices/:invoiceId/edit`)
+  - one page for both create and edit, since they share the same
+  fields and the same `useFieldArray`-driven line-item editor. Editing
+  is **draft-only** server-side (`422 INVOICE_LOCKED` otherwise,
+  FD-042); this page only mirrors that as a friendlier "this invoice
+  is locked" message for a direct `/edit` hit on a non-draft invoice,
+  never the real boundary. Shows a **live, explicitly non-authoritative
+  total preview** (`features/invoices/calculations.ts`) as line items
+  are typed - plain JS-number arithmetic, never sent to the API and
+  never trusted as the real total (spec Section 32 - the saved
+  invoice's own totals, shown on the detail page afterward, are
+  whatever `app.invoices.service.recalculate_invoice` actually
+  returned).
+- **`InvoiceDetailPage`** (`/invoices/:invoiceId`) - fields, line items
+  (fetched via the new endpoint above), totals, and status-appropriate
+  actions (`Edit`/`Issue`/`Cancel`, each gated by a UI-only hint
+  mirroring the backend's own status gates in `app/invoices/service.py`
+  and `app/payments/service.py`), a `View PDF` link (a plain
+  `target="_blank"` anchor straight at the backend's PDF endpoint -
+  the browser's own cookie-bearing same-origin navigation handles
+  auth, no JS fetch/blob dance needed), and the payment ledger +
+  record-payment form. **Amount paid/balance due are computed from the
+  real, already-recorded payments** (`features/invoices/calculations.ts`'s
+  `sumMoney`), not a separate aggregate call - the same "display-only
+  sum of server-validated numbers" category as showing `invoice.total`
+  without recomputing tax.
+- **The idempotency key** FD-043's payment endpoint requires is
+  generated client-side (`crypto.randomUUID()`) and never shown to the
+  user - it's a retry-safety mechanism, not a business field. Generated
+  once per *attempt* and only replaced after a submission actually
+  succeeds, so retrying a failed submission (e.g. a network hiccup)
+  reuses the same key rather than risking a second payment.
+- **`features/invoices/permissions.ts`** - `canManageInvoices`/
+  `canViewFinancialReports` mirror `INVOICE_PAYMENT_MANAGE`/
+  `FINANCIAL_REPORTS_VIEW` as two separate functions even though
+  today's matrix makes them identical (Owner/Accountant only) - the
+  same "don't collapse two permissions the backend deliberately kept
+  separate" reasoning `docs/API.md`'s Financial reports section
+  documents. `canEditInvoice`/`canIssueInvoice`/`canCancelInvoice`/
+  `canRecordPayment` mirror each service function's own status gate
+  line for line.
+
+**Verified against the real backend in a real browser** (`FLASK_ENV=testing`
+on the backend - this dev environment has no Redis for
+`FLASK_ENV=development`'s session store, see `backend/README.md`):
+created an organization and customer, created a draft invoice with a
+line item and confirmed the live total preview updated as it was
+typed, saved it and confirmed the detail page showed the server's own
+(not the preview's) totals; issued it (draft → sent, confirmed
+`Edit`/`Issue` disappeared and the payment form appeared); recorded a
+partial payment and confirmed status became "Partially Paid", amount
+paid/balance due updated, the payment appeared in the ledger, and
+`Cancel` disappeared (blocked once money has moved, FD-043); opened
+the PDF link and confirmed a real file download was triggered (the
+full WeasyPrint pipeline, not just a 200 response); created a second
+draft invoice with no line items, added one via `Edit`, and confirmed
+the editor correctly pre-populated the existing customer selection and
+line item from the new `line-items` endpoint before saving the change.
 
 ## Setup
 

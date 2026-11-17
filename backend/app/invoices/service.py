@@ -638,3 +638,28 @@ def get_financial_summary(
         "monthly_revenue_collected": monthly_revenue_collected,
         "recent_payments": recent_payments,
     }
+
+
+def list_invoice_line_items(organization_id: uuid.UUID, invoice_id: uuid.UUID) -> list[InvoiceLineItem]:
+    """FD-046: read-only - line items are only ever written as a side
+    effect of `create_invoice`/`update_invoice`, never through a
+    direct endpoint of their own, same "no separate create path"
+    convention `list_request_history` already established. Added
+    because no endpoint anywhere returned individual line items
+    before this - `Invoice.to_public_dict()` only ever exposed the
+    computed aggregates (`subtotal`/`tax_total`/...), which is enough
+    for a list/summary view but not for an *editor*, this task's own
+    job, to show a caller what they'd previously entered. A separate
+    endpoint (mirroring comments/history) rather than embedding the
+    list in `Invoice.to_public_dict()` itself avoids an N+1 query on
+    every row of `GET .../invoices` (list), which never needs this.
+    Ordered by `created_at` - insertion order, not any business
+    ranking - same as the relationship's own default ordering."""
+    get_invoice_or_404(organization_id, invoice_id)
+
+    return (
+        db.session.query(InvoiceLineItem)
+        .filter_by(organization_id=organization_id, invoice_id=invoice_id)
+        .order_by(InvoiceLineItem.created_at.asc())
+        .all()
+    )

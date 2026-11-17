@@ -125,11 +125,12 @@ partially_paid/paid; see `docs/API.md`'s Payments section), and
 FD-044 (financial API & reports — invoiced/collected/outstanding
 totals, overdue count, monthly revenue, recent payments, gated by
 FINANCIAL_REPORTS_VIEW; see `docs/API.md`'s Financial reports
-section), and FD-045 (invoice PDF generation via WeasyPrint — logo,
+section), FD-045 (invoice PDF generation via WeasyPrint — logo,
 line items, totals, payment status, with SSRF defenses on the
-org-supplied logo URL; see `docs/API.md`'s Invoice PDF section) are
-Done, the first six tasks of Epic E06 (Invoice and Payment
-Management).
+org-supplied logo URL; see `docs/API.md`'s Invoice PDF section), and
+FD-046 (invoice frontend — editor, payment form, balance/status
+refresh, PDF access; see `frontend/README.md`'s own section) are
+Done, completing Epic E06 (Invoice and Payment Management).
 
 ## Local development infrastructure
 

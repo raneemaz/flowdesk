@@ -7,6 +7,9 @@ import { DepartmentsPage } from "@/pages/DepartmentsPage";
 import { EmployeeDirectoryPage } from "@/pages/EmployeeDirectoryPage";
 import { EmployeeProfilePage } from "@/pages/EmployeeProfilePage";
 import { HomePage } from "@/pages/HomePage";
+import { InvoiceDetailPage } from "@/pages/InvoiceDetailPage";
+import { InvoiceFormPage } from "@/pages/InvoiceFormPage";
+import { InvoiceListPage } from "@/pages/InvoiceListPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { MyTasksPage } from "@/pages/MyTasksPage";
 import { RegisterPage } from "@/pages/RegisterPage";
@@ -38,6 +41,10 @@ export const router = createBrowserRouter([
       { path: "/customers/:customerId", element: <CustomerDetailPage /> },
       { path: "/requests", element: <RequestListPage /> },
       { path: "/requests/:requestId", element: <RequestDetailPage /> },
+      { path: "/invoices", element: <InvoiceListPage /> },
+      { path: "/invoices/new", element: <InvoiceFormPage /> },
+      { path: "/invoices/:invoiceId", element: <InvoiceDetailPage /> },
+      { path: "/invoices/:invoiceId/edit", element: <InvoiceFormPage /> },
     ],
   },
 ]);

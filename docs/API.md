@@ -972,6 +972,19 @@ reworked before issuing. Totals are unconditionally recalculated after
 any change, same validation (`INVALID_CUSTOMER`/`INVALID_DISCOUNT`/
 `NEGATIVE_TOTAL`) as creation.
 
+**`GET /organizations/{organization_id}/invoices/{invoice_id}/line-items`**
+- the invoice's individual line items (description/quantity/unit_price/
+tax_rate/line_total), in creation order. **FD-046** - added because no
+endpoint previously returned these: `InvoicePublic` only ever carried
+the computed aggregates (`subtotal`/`tax_total`/...), enough for a
+list/summary view but not for the invoice *editor* (this task's own
+job) to show a caller what they'd previously entered. Read-only, not
+paginated (an invoice's own line items never need it) - mirrors the
+comments/history sub-resource pattern elsewhere in this codebase
+rather than embedding the list in `InvoicePublic` itself, which would
+otherwise force an N+1 query on every row of the plain `GET .../invoices`
+list (which never needs this).
+
 **`PATCH /organizations/{organization_id}/invoices/{invoice_id}/issue`**
 - draft → sent, the action that locks financial details going
 forward. Only legal from `draft`; requires at least one line item
@@ -1201,6 +1214,7 @@ that text to be safe to interpolate raw.
 | GET | `/api/v1/organizations/{organization_id}/invoices` | Search/filter/paginate the org's invoices (overdue auto-refreshed first) | FD-042 |
 | GET | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}` | View one invoice | FD-042 |
 | PATCH | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}` | Edit a draft invoice (locked once issued) | FD-042 |
+| GET | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/line-items` | List an invoice's individual line items | FD-046 |
 | PATCH | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/issue` | Issue a draft invoice (draft → sent) | FD-042 |
 | PATCH | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/cancel` | Cancel an invoice (not once a payment is recorded) | FD-042 |
 | POST | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/payments` | Record a payment (idempotent, rejects overpayment) | FD-043 |

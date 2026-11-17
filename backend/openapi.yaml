@@ -2720,6 +2720,65 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/invoices/{invoice_id}/line-items:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: invoice_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Invoices]
+      summary: List an invoice's line items
+      description: >
+        Requires INVOICE_PAYMENT_MANAGE - same reach as the invoice
+        detail view. Read-only - line items are only ever written as
+        a side effect of creating/updating the invoice itself, never
+        through a direct endpoint of their own (FD-046, added because
+        no endpoint previously returned individual line items -
+        InvoicePublic only carries the computed aggregates, which the
+        invoice editor needs the real rows to populate). Not
+        paginated - an invoice's own line items are never large enough
+        to need it.
+      operationId: getOrganizationInvoiceLineItems
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The invoice's line items, in creation order
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/InvoiceLineItemPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without INVOICE_PAYMENT_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Invoice does not exist, or belongs to a different organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /organizations/{organization_id}/invoices/{invoice_id}/pdf:
     parameters:
       - name: organization_id

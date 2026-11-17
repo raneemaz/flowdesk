@@ -18,6 +18,7 @@ from app.invoices.service import (
     get_financial_summary,
     get_invoice,
     issue_invoice,
+    list_invoice_line_items,
     list_invoices,
     update_invoice,
 )
@@ -133,6 +134,20 @@ def get_invoice_detail(organization_id, invoice_id):
     invoice = get_invoice(organization_id, invoice_id, g.current_membership.organization.timezone)
 
     body = {"success": True, "message": "Invoice retrieved", "data": invoice.to_public_dict()}
+    return jsonify(body), 200
+
+
+@invoices_bp.route("/organizations/<uuid:organization_id>/invoices/<uuid:invoice_id>/line-items", methods=["GET"])
+@login_required
+@require_permission(Permission.INVOICE_PAYMENT_MANAGE)
+def get_invoice_line_items(organization_id, invoice_id):
+    line_items = list_invoice_line_items(organization_id, invoice_id)
+
+    body = {
+        "success": True,
+        "message": "Invoice line items retrieved",
+        "data": [item.to_public_dict() for item in line_items],
+    }
     return jsonify(body), 200
 
 
