@@ -2720,6 +2720,57 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/invoices/{invoice_id}/pdf:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: invoice_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Invoices]
+      summary: Download the invoice as a PDF
+      description: >
+        Requires INVOICE_PAYMENT_MANAGE - same reach as the plain JSON
+        detail view; downloading the PDF isn't a different capability
+        from viewing the invoice. Per FR-027: logo, business info,
+        customer info, line items, taxes/discounts, totals, and
+        payment status (status label + amount paid + balance due).
+        Every value comes from already-server-computed columns or a
+        fresh balance query (FD-043), never from request input.
+      operationId: getOrganizationInvoicePdf
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The invoice, rendered as a PDF document
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without INVOICE_PAYMENT_MANAGE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Invoice does not exist, or belongs to a different organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /organizations/{organization_id}/invoices/{invoice_id}/issue:
     parameters:
       - name: organization_id

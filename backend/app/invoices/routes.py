@@ -1,10 +1,11 @@
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, Response, g, jsonify, request
 from pydantic import ValidationError
 
 from app.auth.decorators import csrf_protect, login_required
 from app.authz.decorators import require_permission
 from app.authz.permissions import Permission
 from app.errors import APIError, validation_error_details
+from app.invoices.pdf import generate_invoice_pdf
 from app.invoices.schemas import (
     CreateInvoiceRequest,
     FinancialSummaryQuery,
@@ -133,6 +134,19 @@ def get_invoice_detail(organization_id, invoice_id):
 
     body = {"success": True, "message": "Invoice retrieved", "data": invoice.to_public_dict()}
     return jsonify(body), 200
+
+
+@invoices_bp.route("/organizations/<uuid:organization_id>/invoices/<uuid:invoice_id>/pdf", methods=["GET"])
+@login_required
+@require_permission(Permission.INVOICE_PAYMENT_MANAGE)
+def get_invoice_pdf(organization_id, invoice_id):
+    invoice = get_invoice(organization_id, invoice_id, g.current_membership.organization.timezone)
+
+    pdf_bytes = generate_invoice_pdf(invoice, g.current_membership.organization)
+
+    response = Response(pdf_bytes, mimetype="application/pdf")
+    response.headers["Content-Disposition"] = f'inline; filename="{invoice.invoice_number}.pdf"'
+    return response
 
 
 @invoices_bp.route("/organizations/<uuid:organization_id>/invoices/<uuid:invoice_id>", methods=["PATCH"])

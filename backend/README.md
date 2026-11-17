@@ -181,6 +181,28 @@ py -3.12 -m venv .venv
 Copy the root `.env.example` to `.env` (at the project root) and adjust as
 needed; `python-dotenv` loads it automatically.
 
+### PDF generation (FD-045) on Windows
+
+Invoice PDF generation uses WeasyPrint, which needs a system-level
+GTK3 runtime (Pango/Cairo/GDK-Pixbuf) that `pip install` cannot
+provide on its own - `import weasyprint` raises `OSError: cannot load
+library 'libgobject-2.0-0'` without it. On Linux (production), these
+typically come from system packages (e.g. a `libpango-1.0-0` apt
+package) and need no extra step. On Windows, install via
+[MSYS2](https://www.msys2.org/) (if not already installed):
+
+```bash
+pacman -S mingw-w64-x86_64-pango mingw-w64-x86_64-gdk-pixbuf2
+```
+
+then make sure `<msys2 install dir>\mingw64\bin` (e.g.
+`C:\msys64\mingw64\bin`) is on `PATH` whenever you run the app or its
+tests - **append** it, don't prepend it, since MSYS2's own `mingw64`
+directory also has a `python.exe` that would otherwise shadow this
+project's venv. Every other route/test in this app works fine without
+this - only generating a PDF (`app.invoices.pdf.generate_invoice_pdf`,
+imported lazily) actually needs it, by design.
+
 ## Running
 
 ```bash
@@ -192,6 +214,11 @@ FLASK_ENV=development ./.venv/Scripts/python.exe -m flask --app wsgi run
 ```bash
 FLASK_ENV=testing ./.venv/Scripts/python.exe -m pytest -v
 ```
+
+`tests/test_invoices_pdf.py`'s few tests that render a real PDF need
+WeasyPrint's native GTK3 runtime actually importable (see "PDF
+generation (FD-045) on Windows" above) - everything else in the suite
+runs fine without it.
 
 `tests/conftest.py`'s `app` fixture disposes its SQLAlchemy engine
 (`db.session.remove()` + `db.engine.dispose()`) after every test. Each

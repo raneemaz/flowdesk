@@ -13,3 +13,4 @@ email-validator==2.3.0
 Flask-Session==0.8.0
 redis==8.1.0
 tzdata==2026.6
+weasyprint==70.0

@@ -1107,6 +1107,53 @@ already-server-computed `Invoice.total`/`Payment.amount` - there is
 no request-body total anywhere in this read-only endpoint for a
 client to even attempt to override.
 
+## Invoice PDF (FD-045)
+
+**`GET /organizations/{organization_id}/invoices/{invoice_id}/pdf`**
+- gated by the same `INVOICE_PAYMENT_MANAGE` as the plain JSON detail
+view (`GET .../invoices/{invoice_id}`) - downloading the PDF isn't a
+different capability from viewing the invoice. Returns
+`Content-Type: application/pdf` with the raw PDF bytes (not the usual
+JSON success/error envelope - a binary document, not an API resource
+response); `404` if the invoice doesn't exist or belongs to a
+different organization, same as the JSON detail endpoint.
+
+Per FR-027: logo, business info, customer info, line items,
+taxes/discounts, totals, and payment status (status label + amount
+paid + balance due, the latter via FD-043's `get_invoice_balance`) -
+rendered from `backend/app/invoices/pdf.py`'s `build_invoice_pdf_html`
+(a pure HTML-string function, independently testable) and handed to
+WeasyPrint by `generate_invoice_pdf`. Every value comes from
+already-server-computed columns or a fresh balance query, never from
+request input - there's nothing in this endpoint for a client to
+submit at all.
+
+**`organization.logo` (FD-012, a bare URL string with no
+format/scheme validation at the model level) gets two independent
+layers of defense before being embedded as a live image fetch
+target** - a single scheme check alone isn't enough, since a
+*legitimate* `http(s)` URL can still point at an internal/private
+address:
+1. Only an `http(s)://` URL is ever turned into an `<img>` tag at all
+   (`file://`, `data:`, `javascript:`, anything else renders with no
+   image).
+2. A custom WeasyPrint `url_fetcher` resolves the hostname and
+   refuses to fetch anything private/loopback/link-local/reserved/
+   multicast/unspecified - closing the gap a tenant-security review
+   found in an earlier pass of this task (a `http://169.254.169.254/...`
+   cloud-metadata URL would have passed layer 1 untouched). Redirects
+   are disabled entirely rather than re-validated per hop. This does
+   **not** close a DNS-rebinding race (resolve-safe, then connect to a
+   different IP) - a known, named residual gap, not something this
+   module claims to fully solve; see `pdf.py`'s own docstring.
+
+Every other admin/customer-supplied free-text field interpolated into
+the document (customer name/company/email/phone/address, invoice
+notes/payment terms, organization name/email/phone/address) is
+HTML-escaped - this is a generated document, not a live page, but the
+escaping is still the correct default rather than trusting any of
+that text to be safe to interpolate raw.
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -1159,6 +1206,7 @@ client to even attempt to override.
 | POST | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/payments` | Record a payment (idempotent, rejects overpayment) | FD-043 |
 | GET | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/payments` | List an invoice's payments, chronologically | FD-043 |
 | GET | `/api/v1/organizations/{organization_id}/invoices/financial-summary` | Invoiced/collected/outstanding, overdue count, monthly revenue, recent payments | FD-044 |
+| GET | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/pdf` | Invoice as a PDF (logo, items, totals, payment status) | FD-045 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |
