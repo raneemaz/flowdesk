@@ -21,6 +21,7 @@ Task-style subset of transitions an assignee may trigger themselves.
 import uuid
 from datetime import date
 
+from app.activity.service import log_activity
 from app.authz.permissions import PermissionScope
 from app.authz.service import check_scope_allows
 from app.errors import APIError
@@ -97,6 +98,15 @@ def create_request(
         request.priority = priority
 
     db.session.add(request)
+    db.session.flush()
+    log_activity(
+        organization_id,
+        creator_membership_id,
+        "request_created",
+        "customer_request",
+        request.id,
+        metadata={"title": request.title},
+    )
     db.session.commit()
     return request
 
@@ -381,6 +391,15 @@ def update_request_status(
                 new_value=new_status.value,
             )
         )
+        if new_status == RequestStatus.RESOLVED:
+            log_activity(
+                organization_id,
+                actor_membership_id,
+                "request_resolved",
+                "customer_request",
+                request.id,
+                metadata={"title": request.title},
+            )
 
     if history_entries:
         db.session.add_all(history_entries)

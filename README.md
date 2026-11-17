@@ -130,7 +130,15 @@ line items, totals, payment status, with SSRF defenses on the
 org-supplied logo URL; see `docs/API.md`'s Invoice PDF section), and
 FD-046 (invoice frontend — editor, payment form, balance/status
 refresh, PDF access; see `frontend/README.md`'s own section) are
-Done, completing Epic E06 (Invoice and Payment Management).
+Done, completing Epic E06 (Invoice and Payment Management). FD-047
+(centralized activity logging — a shared `log_activity()` service
+wired into employee invites, task/request/invoice/payment
+create-and-lifecycle events, and employee deactivation, with a
+role/scope-filtered `GET .../activity` read endpoint; one named event,
+"role-changed", is a documented gap since no "change a member's role"
+feature exists yet to log; see `docs/DATABASE.md`'s `activity_logs`
+section and `docs/API.md`'s Activity log section) is Done, the first
+task of Epic E07.
 
 ## Local development infrastructure
 

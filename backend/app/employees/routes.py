@@ -92,7 +92,12 @@ def patch_employee_profile(organization_id, membership_id):
             "Validation failed", status_code=422, code="VALIDATION_ERROR", details=validation_error_details(exc)
         )
 
-    profile = update_employee_profile(organization_id, membership_id, data.model_dump(exclude_unset=True))
+    profile = update_employee_profile(
+        organization_id,
+        membership_id,
+        data.model_dump(exclude_unset=True),
+        actor_membership_id=g.current_membership.id,
+    )
 
     body = {"success": True, "message": "Employee profile updated", "data": profile.to_public_dict()}
     return jsonify(body), 200

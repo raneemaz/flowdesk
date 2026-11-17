@@ -1167,6 +1167,39 @@ HTML-escaped - this is a generated document, not a live page, but the
 escaping is still the correct default rather than trusting any of
 that text to be safe to interpolate raw.
 
+## Activity log (FD-047)
+
+Centralized in `backend/app/activity/`. There is no write endpoint -
+every row is written as a side effect of the business action it
+describes (FR-037: immutable through the normal application
+interface); see `docs/DATABASE.md`'s own `activity_logs` section for
+the full list of wired trigger points and the one named, deliberately
+unwired gap ("role-changed").
+
+**`GET /organizations/{organization_id}/activity`** - gated by
+**`require_permission(Permission.ACTIVITY_HISTORY_VIEW)`**. Query
+params: `page`/`per_page` (same pagination convention as every other
+list endpoint). Response `data` is a list of
+`{"id", "organization_id", "actor_membership_id", "action",
+"entity_type", "entity_id", "metadata", "created_at"}` objects, newest
+first.
+
+**Scope determines which entries are visible, not which fields**
+(same shape as Tasks' `assigned` scope):
+- **`full`** (Owner/Manager) - every entry in the organization.
+- **`own`** (Employee) - only entries where the caller themselves is
+  the recorded actor.
+- **`limited`** (Accountant **or** CustomerSupport) - this permission's
+  one scope value means two *different* filters depending on role,
+  since the baseline matrix grants both roles `limited` for different
+  reasons: Accountant sees only `invoice`/`payment` entity-type
+  entries; CustomerSupport sees only `customer`/`customer_request`
+  entity-type entries. `app.activity.service.list_activity` takes the
+  caller's role alongside the resolved scope to disambiguate, and
+  fails closed (matches nothing) for any other role a future
+  permissions change might grant `limited` to, rather than falling
+  through to an unfiltered result.
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -1221,6 +1254,7 @@ that text to be safe to interpolate raw.
 | GET | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/payments` | List an invoice's payments, chronologically | FD-043 |
 | GET | `/api/v1/organizations/{organization_id}/invoices/financial-summary` | Invoiced/collected/outstanding, overdue count, monthly revenue, recent payments | FD-044 |
 | GET | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/pdf` | Invoice as a PDF (logo, items, totals, payment status) | FD-045 |
+| GET | `/api/v1/organizations/{organization_id}/activity` | Search/paginate the org's centralized activity log (role/scope-filtered) | FD-047 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |

@@ -33,6 +33,7 @@ from decimal import Decimal
 
 from sqlalchemy.exc import IntegrityError
 
+from app.activity.service import log_activity
 from app.errors import APIError
 from app.extensions import db
 from app.invoices.service import get_invoice_or_404
@@ -201,10 +202,19 @@ def record_payment(
         )
         _set_method(payment, method)
         db.session.add(payment)
+        db.session.flush()
 
         new_balance_due = balance_due - amount
         invoice.status = InvoiceStatus.PAID if new_balance_due <= Decimal("0.00") else InvoiceStatus.PARTIALLY_PAID
 
+        log_activity(
+            organization_id,
+            recorder_membership_id,
+            "payment_recorded",
+            "payment",
+            payment.id,
+            metadata={"amount": str(amount), "invoice_id": str(invoice_id)},
+        )
         db.session.commit()
     except APIError:
         db.session.rollback()

@@ -39,6 +39,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
+from app.activity.service import log_activity
 from app.errors import APIError
 from app.extensions import db
 from app.models import Customer, CustomerStatus, DiscountType, Invoice, InvoiceLineItem, InvoiceStatus, Payment
@@ -293,6 +294,14 @@ def create_invoice(
         db.session.rollback()
         raise
 
+    log_activity(
+        organization_id,
+        creator_membership_id,
+        "invoice_created",
+        "invoice",
+        invoice.id,
+        metadata={"invoice_number": invoice.invoice_number, "total": str(invoice.total)},
+    )
     db.session.commit()
     return invoice
 

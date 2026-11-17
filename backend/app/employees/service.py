@@ -26,6 +26,7 @@ import uuid
 
 from sqlalchemy.orm import joinedload
 
+from app.activity.service import log_activity
 from app.authz.permissions import PermissionScope
 from app.errors import APIError
 from app.extensions import db
@@ -287,7 +288,9 @@ def _get_or_create_profile(organization_id: uuid.UUID, membership_id: uuid.UUID)
     return profile
 
 
-def update_employee_profile(organization_id: uuid.UUID, membership_id: uuid.UUID, fields: dict) -> EmployeeProfile:
+def update_employee_profile(
+    organization_id: uuid.UUID, membership_id: uuid.UUID, fields: dict, *, actor_membership_id: uuid.UUID
+) -> EmployeeProfile:
     """`fields` is the caller's `UpdateEmployeeProfileRequest.model_dump(exclude_unset=True)`
     - only keys actually present in the request body are applied."""
     if "department_id" in fields:
@@ -298,6 +301,7 @@ def update_employee_profile(organization_id: uuid.UUID, membership_id: uuid.UUID
         )
 
     profile = _get_or_create_profile(organization_id, membership_id)
+    previous_status = profile.status
 
     if "job_title" in fields:
         profile.job_title = fields["job_title"]
@@ -307,6 +311,15 @@ def update_employee_profile(organization_id: uuid.UUID, membership_id: uuid.UUID
         profile.manager_membership_id = fields["manager_membership_id"]
     if "status" in fields:
         profile.status = fields["status"]
+
+    # FR-036's "employee deactivated" - only on a genuine transition
+    # *into* inactive, not a no-op PATCH that merely re-sends the
+    # already-inactive status (same idempotent-logging convention
+    # app.tasks.service.update_task_status already established).
+    if "status" in fields and profile.status == EmployeeStatus.INACTIVE and previous_status != EmployeeStatus.INACTIVE:
+        log_activity(
+            organization_id, actor_membership_id, "employee_deactivated", "membership", membership_id, metadata=None
+        )
 
     db.session.commit()
     return profile

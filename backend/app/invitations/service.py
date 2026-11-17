@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from flask import current_app
 from sqlalchemy.exc import IntegrityError
 
+from app.activity.service import log_activity
 from app.authz.service import can_invite_with_role
 from app.email import client as email_client
 from app.email.client import EmailDeliveryError
@@ -95,6 +96,15 @@ def create_invitation(
         inviter_id=actor_membership.user_id,
     )
     db.session.add(invitation)
+    db.session.flush()
+    log_activity(
+        organization.id,
+        actor_membership.id,
+        "employee_invited",
+        "invitation",
+        invitation.id,
+        metadata={"email": normalized_email, "role": role.value},
+    )
     db.session.commit()
 
     invite_link = f"{current_app.config['FRONTEND_URL']}/invitations/accept?token={raw_token}"

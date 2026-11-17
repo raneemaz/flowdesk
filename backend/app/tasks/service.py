@@ -14,6 +14,7 @@ import uuid
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from app.activity.service import log_activity
 from app.authz.permissions import PermissionScope
 from app.authz.service import check_scope_allows
 from app.errors import APIError
@@ -96,6 +97,8 @@ def create_task(
         task.priority = priority
 
     db.session.add(task)
+    db.session.flush()
+    log_activity(organization_id, creator_membership_id, "task_created", "task", task.id, metadata={"title": task.title})
     db.session.commit()
     return task
 
@@ -267,6 +270,15 @@ def assign_task(
             new_value=str(assignee_membership_id) if assignee_membership_id else None,
         )
     )
+    if assignee_membership_id is not None:
+        log_activity(
+            organization_id,
+            actor_membership_id,
+            "task_assigned",
+            "task",
+            task.id,
+            metadata={"assignee_membership_id": str(assignee_membership_id)},
+        )
     db.session.commit()
     return task
 
@@ -364,6 +376,10 @@ def update_task_status(
             new_value=new_status.value,
         )
     )
+    if new_status == TaskStatus.COMPLETED:
+        log_activity(
+            organization_id, actor_membership_id, "task_completed", "task", task.id, metadata={"title": task.title}
+        )
     db.session.commit()
     return task
 

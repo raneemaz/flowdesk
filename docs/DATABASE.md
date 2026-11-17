@@ -770,6 +770,62 @@ tables use the standard `TimestampMixin`, since a line item or a
 recorded payment, unlike a history entry, isn't itself an audit-trail
 row describing a change to something else.
 
+### `activity_logs` (FD-047)
+
+Fields per spec Section 10.1's ActivityLog entity and FR-036/FR-037 -
+a centralized, cross-module audit trail (`app.activity.service.log_activity`),
+distinct from `task_histories`/`request_histories` (which each record
+changes to *one specific* entity type only).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `organization_id` | UUID | required, FK -> `organizations.id`, `ON DELETE CASCADE`, indexed |
+| `actor_membership_id` | UUID, nullable | **simple** FK -> `memberships.id`, `ON DELETE SET NULL`, indexed - same audit-actor reasoning as `task_histories.actor_membership_id`/`request_histories.actor_membership_id`, **not** the composite same-organization-enforcing pattern `invoices.created_by`/`payments.recorded_by` use (those are financial-record actor references, a deliberately different category in this codebase) |
+| `action` | varchar(100), indexed | plain string, not a closed enum - same "no implied fixed set" reasoning as `task_histories.event_type` |
+| `entity_type` | varchar(50), indexed | plain string (e.g. `task`, `invoice`, `invitation`, `customer_request`, `payment`, `membership`) |
+| `entity_id` | UUID, indexed | **no foreign key** - genuinely polymorphic (its target table depends on `entity_type`), unlike every other parent/child reference in this codebase |
+| `metadata` | JSONB, nullable | mapped as the Python attribute `metadata_` (`metadata` is reserved on `db.Model`) but stored and serialized under the column/API name `metadata` - "safe metadata only" (titles, amounts, statuses, ids) is a calling-discipline documented on `app.models.activity.ActivityLog`, not something this column enforces at runtime |
+| `created_at` | timestamptz | **no `updated_at`** - immutable audit trail (FR-037), same append-only reasoning as `task_histories`/`request_histories` |
+
+**No create/update/delete endpoint exists for this table** - every row
+is written as a side effect of the business action it describes, via
+`log_activity()` called alongside (and committed in the same
+transaction as) that action's own write:
+
+- `employee_invited` (`invitation`) - `app.invitations.service.create_invitation`
+- `task_created` / `task_assigned` / `task_completed` (`task`) - `app.tasks.service.create_task`/`assign_task`/`update_task_status`; `task_assigned` only on a real, non-null assignment change, `task_completed` only on the specific transition to `completed`
+- `request_created` / `request_resolved` (`customer_request`) - `app.customer_requests.service.create_request`/`update_request_status`; `request_resolved` only on the transition to `resolved`
+- `invoice_created` (`invoice`) - `app.invoices.service.create_invoice`
+- `payment_recorded` (`payment`) - `app.payments.service.record_payment`; never on an idempotent replay
+- `employee_deactivated` (`membership`) - `app.employees.service.update_employee_profile`, only on a genuine transition into `inactive`
+
+**Known gap, documented rather than guessed around:** FR-036 also
+names a "role-changed" event, but no task in this backlog has ever
+built a "change an existing member's role" feature
+(`app.authz.service.can_assign_role` is defined but never called from
+any route) - there is no trigger point to hook into, so this one event
+type is not wired. Building that feature solely to have something to
+log would be scope creep beyond this task's own title.
+
+**Read access (`GET /organizations/{id}/activity`) uses
+`Permission.ACTIVITY_HISTORY_VIEW`**, whose `limited` scope means two
+different things depending on role (Accountant: invoice/payment entity
+types only; CustomerSupport: customer/customer_request entity types
+only) - `app.activity.service.list_activity` takes both the resolved
+scope and the caller's role to disambiguate, and fails closed (empty
+result) for any other role a future permissions change might grant
+`limited` to.
+
+**No retention/purge policy** (Section 35 open decision #10) - rows
+are kept indefinitely, the same "no retention mechanism" default every
+other entity in this codebase already has.
+
+**Cascade behavior:** deleting an `Organization` deletes its activity
+log (`CASCADE`). Deleting the actor's `Membership` only clears
+`actor_membership_id` (`SET NULL`) - a log entry is organization
+history and survives its actor's membership.
+
 **FD-044's financial summary** (`GET .../invoices/financial-summary`,
 `app.invoices.service.get_financial_summary`) is a pure read-time
 aggregation over these two tables - no new column or table of its
