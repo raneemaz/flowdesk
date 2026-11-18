@@ -185,8 +185,16 @@ like the backend gates it, plus the FR-034 period selector; AI Reports/
 Activity/Settings sidebar entries and the top bar's search/theme
 selector are documented gaps, not oversights — no FD task ever builds
 those three pages, and dark theme is explicitly optional and
-unimplemented) is Done. FD-054 (CSV/PDF report export), also part of
-Epic E07 and depending only on FD-052 like this task did, remains.
+unimplemented) is Done. FD-054 (CSV/PDF report export — a
+`.../export` sibling for each of FD-052's four analytics endpoints,
+same `ANALYTICS_VIEW` permission, scope rules, period taxonomy, and
+cross-org 404s; CSV cells are sanitized against formula injection
+with the standard leading-`'` defusing prefix; the financial export
+has four sections — summary, revenue by day, invoice distribution,
+recent payments — mirroring the JSON response's own shape; backend
+only, same precedent as FD-045/FD-046's PDF-generation/PDF-access
+split, so there's no frontend download button yet) is Done, completing
+Epic E07 (Analytics, Activity History and Notifications).
 
 ## Local development infrastructure
 

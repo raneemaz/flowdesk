@@ -5,16 +5,36 @@ themselves - do the cross-organization existence check for a
 caller-supplied `target_membership_id`/`department_id` before calling
 in, exactly per the service module's own documented warning that it
 otherwise silently returns an empty result rather than a 404 for a
-bad id."""
+bad id.
 
-from flask import Blueprint, g, jsonify, request
+FD-054 adds the four `.../export` routes below (FR-035: "CSV and PDF
+for authorized users"). Each one re-runs the *exact* same query
+validation, period resolution, cross-org existence check, and service
+call as its JSON sibling above - same permission, same scope rules,
+same 404s - and only differs in handing that already-authorized
+result to `app.analytics.export` for CSV/PDF rendering instead of
+`jsonify`. No business logic is duplicated between a JSON route and
+its export counterpart; the export route is never anything but a
+thin reuse of its sibling's own call sequence plus a rendering step."""
+
+from flask import Blueprint, Response, g, jsonify, request
 from pydantic import ValidationError
 
+from app.analytics.export import (
+    build_department_export,
+    build_employee_export,
+    build_finance_export,
+    build_overview_export,
+)
 from app.analytics.schemas import (
     DepartmentAnalyticsQuery,
+    DepartmentExportQuery,
     EmployeeAnalyticsQuery,
+    EmployeeExportQuery,
     FinancialAnalyticsQuery,
+    FinancialExportQuery,
     OverviewAnalyticsQuery,
+    OverviewExportQuery,
 )
 from app.analytics.service import (
     get_department_analytics,
@@ -40,6 +60,15 @@ def _validate_query(schema_cls, args):
         raise APIError(
             "Validation failed", status_code=422, code="VALIDATION_ERROR", details=validation_error_details(exc)
         )
+
+
+def _export_response(content, fmt: str, filename_stub: str) -> Response:
+    if fmt == "csv":
+        response = Response(content, mimetype="text/csv")
+    else:
+        response = Response(content, mimetype="application/pdf")
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename_stub}.{fmt}"'
+    return response
 
 
 @analytics_bp.route("/organizations/<uuid:organization_id>/analytics/overview", methods=["GET"])
@@ -196,3 +225,101 @@ def get_analytics_finance(organization_id):
         },
     }
     return jsonify(body), 200
+
+
+@analytics_bp.route("/organizations/<uuid:organization_id>/analytics/overview/export", methods=["GET"])
+@login_required
+@require_permission(Permission.ANALYTICS_VIEW)
+def export_analytics_overview(organization_id):
+    query = _validate_query(OverviewExportQuery, request.args.to_dict())
+    organization = g.current_membership.organization
+    period_start, period_end = resolve_period_filter(
+        query.period, organization.timezone, period_start=query.period_start, period_end=query.period_end
+    )
+
+    metrics = get_overview_metrics(
+        organization_id, organization.timezone, g.permission_scope, period_start=period_start, period_end=period_end
+    )
+
+    content = build_overview_export(metrics, organization.name, query.format)
+    filename = f"overview-{period_start.isoformat()}-to-{period_end.isoformat()}"
+    return _export_response(content, query.format, filename)
+
+
+@analytics_bp.route("/organizations/<uuid:organization_id>/analytics/employees/export", methods=["GET"])
+@login_required
+@require_permission(Permission.ANALYTICS_VIEW)
+def export_analytics_employees(organization_id):
+    query = _validate_query(EmployeeExportQuery, request.args.to_dict())
+    organization = g.current_membership.organization
+    period_start, period_end = resolve_period_filter(
+        query.period, organization.timezone, period_start=query.period_start, period_end=query.period_end
+    )
+
+    if query.target_membership_id is not None:
+        get_target_membership_or_404(organization_id, query.target_membership_id)
+
+    results = get_employee_performance(
+        organization_id,
+        organization.timezone,
+        g.permission_scope,
+        g.current_membership.id,
+        period_start=period_start,
+        period_end=period_end,
+        target_membership_id=query.target_membership_id,
+    )
+
+    content = build_employee_export(results, organization.name, period_start, period_end, query.format)
+    filename = f"employee-performance-{period_start.isoformat()}-to-{period_end.isoformat()}"
+    return _export_response(content, query.format, filename)
+
+
+@analytics_bp.route("/organizations/<uuid:organization_id>/analytics/departments/export", methods=["GET"])
+@login_required
+@require_permission(Permission.ANALYTICS_VIEW)
+def export_analytics_departments(organization_id):
+    query = _validate_query(DepartmentExportQuery, request.args.to_dict())
+    organization = g.current_membership.organization
+    period_start, period_end = resolve_period_filter(
+        query.period, organization.timezone, period_start=query.period_start, period_end=query.period_end
+    )
+
+    if query.department_id is not None:
+        get_department_or_404(organization_id, query.department_id)
+
+    results = get_department_analytics(
+        organization_id,
+        organization.timezone,
+        g.permission_scope,
+        period_start=period_start,
+        period_end=period_end,
+        department_id=query.department_id,
+    )
+
+    content = build_department_export(results, organization.name, period_start, period_end, query.format)
+    filename = f"department-analytics-{period_start.isoformat()}-to-{period_end.isoformat()}"
+    return _export_response(content, query.format, filename)
+
+
+@analytics_bp.route("/organizations/<uuid:organization_id>/analytics/finance/export", methods=["GET"])
+@login_required
+@require_permission(Permission.ANALYTICS_VIEW)
+def export_analytics_finance(organization_id):
+    query = _validate_query(FinancialExportQuery, request.args.to_dict())
+    organization = g.current_membership.organization
+    period_start, period_end = resolve_period_filter(
+        query.period, organization.timezone, period_start=query.period_start, period_end=query.period_end
+    )
+
+    analytics = get_financial_analytics(
+        organization_id,
+        organization.timezone,
+        g.permission_scope,
+        g.current_membership.role,
+        period_start=period_start,
+        period_end=period_end,
+    )
+
+    content = build_finance_export(analytics, organization.name, query.format)
+    filename = f"financial-report-{period_start.isoformat()}-to-{period_end.isoformat()}"
+    return _export_response(content, query.format, filename)

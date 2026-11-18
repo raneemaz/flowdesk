@@ -2,7 +2,11 @@
 resolves the FR-034 named date-filter taxonomy; `custom` is the only
 value that accepts explicit `period_start`/`period_end` - any other
 value supplying either is a 422, so a caller never silently has an
-explicit range ignored in favor of a named one."""
+explicit range ignored in favor of a named one.
+
+FD-054 adds the four `*ExportQuery` subclasses below - identical to
+their JSON sibling plus a required `format` field (FR-035's "CSV and
+PDF")."""
 
 import uuid
 from datetime import date
@@ -50,3 +54,30 @@ class DepartmentAnalyticsQuery(_PeriodQuery):
 
 class FinancialAnalyticsQuery(_PeriodQuery):
     """Query-string params for GET .../analytics/finance."""
+
+
+ExportFormat = Literal["csv", "pdf"]
+
+
+class OverviewExportQuery(OverviewAnalyticsQuery):
+    """Query-string params for GET .../analytics/overview/export."""
+
+    format: ExportFormat
+
+
+class EmployeeExportQuery(EmployeeAnalyticsQuery):
+    """Query-string params for GET .../analytics/employees/export."""
+
+    format: ExportFormat
+
+
+class DepartmentExportQuery(DepartmentAnalyticsQuery):
+    """Query-string params for GET .../analytics/departments/export."""
+
+    format: ExportFormat
+
+
+class FinancialExportQuery(FinancialAnalyticsQuery):
+    """Query-string params for GET .../analytics/finance/export."""
+
+    format: ExportFormat

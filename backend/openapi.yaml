@@ -3650,6 +3650,264 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/analytics/overview/export:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Analytics]
+      summary: Overview metrics as a CSV or PDF file (FD-054, FR-035)
+      description: >
+        Same ANALYTICS_VIEW permission, scope restriction, period
+        taxonomy, and validation as GET .../analytics/overview - only
+        the response body differs (a file, not a JSON envelope). CSV
+        cells are sanitized against formula injection.
+      operationId: exportOrganizationAnalyticsOverview
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, enum: [last_7_days, last_30_days, last_90_days, current_month, previous_month, custom] }
+        - name: period_start
+          in: query
+          schema: { type: string, format: date }
+        - name: period_end
+          in: query
+          schema: { type: string, format: date }
+        - name: format
+          in: query
+          required: true
+          schema: { type: string, enum: [csv, pdf] }
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Overview report file
+          content:
+            text/csv: { schema: { type: string, format: binary } }
+            application/pdf: { schema: { type: string, format: binary } }
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without full ANALYTICS_VIEW scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown period/format, custom missing period_start/period_end, or bounds given for a named period)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/analytics/employees/export:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Analytics]
+      summary: Employee performance as a CSV or PDF file (FD-054, FR-035)
+      description: >
+        Same ANALYTICS_VIEW permission, scope rules (full may pass
+        target_membership_id or omit it; own is forced to the
+        caller's own membership), and validation as GET
+        .../analytics/employees - only the response body differs.
+      operationId: exportOrganizationAnalyticsEmployees
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, enum: [last_7_days, last_30_days, last_90_days, current_month, previous_month, custom] }
+        - name: period_start
+          in: query
+          schema: { type: string, format: date }
+        - name: period_end
+          in: query
+          schema: { type: string, format: date }
+        - name: target_membership_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: format
+          in: query
+          required: true
+          schema: { type: string, enum: [csv, pdf] }
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Employee performance report file
+          content:
+            text/csv: { schema: { type: string, format: binary } }
+            application/pdf: { schema: { type: string, format: binary } }
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without full/own ANALYTICS_VIEW scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or target_membership_id doesn't resolve to an active membership in it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown period/format, custom missing period_start/period_end, or bounds given for a named period)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/analytics/departments/export:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Analytics]
+      summary: Department analytics as a CSV or PDF file (FD-054, FR-035)
+      description: >
+        Same ANALYTICS_VIEW permission, full-scope-only restriction,
+        and validation as GET .../analytics/departments - only the
+        response body differs.
+      operationId: exportOrganizationAnalyticsDepartments
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, enum: [last_7_days, last_30_days, last_90_days, current_month, previous_month, custom] }
+        - name: period_start
+          in: query
+          schema: { type: string, format: date }
+        - name: period_end
+          in: query
+          schema: { type: string, format: date }
+        - name: department_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: format
+          in: query
+          required: true
+          schema: { type: string, enum: [csv, pdf] }
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Department analytics report file
+          content:
+            text/csv: { schema: { type: string, format: binary } }
+            application/pdf: { schema: { type: string, format: binary } }
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without full ANALYTICS_VIEW scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or department_id doesn't belong to it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown period/format, custom missing period_start/period_end, or bounds given for a named period)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/analytics/finance/export:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Analytics]
+      summary: Financial report as a CSV or PDF file (FD-054, FR-035)
+      description: >
+        Same ANALYTICS_VIEW permission, full-or-Accountant-limited
+        scope restriction, and validation as GET
+        .../analytics/finance - only the response body differs. The
+        file has four sections (summary, revenue by day, invoice
+        distribution, recent payments).
+      operationId: exportOrganizationAnalyticsFinance
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, enum: [last_7_days, last_30_days, last_90_days, current_month, previous_month, custom] }
+        - name: period_start
+          in: query
+          schema: { type: string, format: date }
+        - name: period_end
+          in: query
+          schema: { type: string, format: date }
+        - name: format
+          in: query
+          required: true
+          schema: { type: string, enum: [csv, pdf] }
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Financial report file
+          content:
+            text/csv: { schema: { type: string, format: binary } }
+            application/pdf: { schema: { type: string, format: binary } }
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without full or Accountant-limited ANALYTICS_VIEW scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown period/format, custom missing period_start/period_end, or bounds given for a named period)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /health:
     get:
       tags: [Health]

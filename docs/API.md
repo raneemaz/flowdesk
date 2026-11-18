@@ -1243,7 +1243,7 @@ outline's own literal `POST` - a deliberate judgment call for
 consistency with every other idempotent state-change endpoint in this
 API (Tasks' assign/status, Invoices' issue/cancel).
 
-## Analytics (FD-051/FD-052)
+## Analytics (FD-051/FD-052/FD-054)
 
 Centralized in `backend/app/analytics/`. FD-051 built the service
 layer (`app/analytics/service.py`) as four deterministic, org-scoped
@@ -1334,6 +1334,39 @@ actually had a payment - never zero-filled) and
 this organization's invoices grouped by status, issued within the
 period).
 
+### CSV/PDF export (FD-054)
+
+Each of the four endpoints above has an `.../export` sibling taking
+the exact same query params plus a required **`format`** (`csv` or
+`pdf`) - same permission (`Permission.ANALYTICS_VIEW`), same
+per-endpoint scope restriction, same period taxonomy, same cross-org
+`404`s for `target_membership_id`/`department_id`, same `422`s for a
+bad `period`/`format`. The export route is never anything but its
+JSON sibling's own call sequence (query validation, period
+resolution, existence check, service call) handed to
+`app.analytics.export` for rendering instead of `jsonify` - no
+business logic is duplicated between the two.
+
+- **`GET .../analytics/overview/export`**, **`GET .../analytics/employees/export`**,
+  **`GET .../analytics/departments/export`**, **`GET .../analytics/finance/export`**.
+- Response is `text/csv` or `application/pdf` with
+  `Content-Disposition: attachment; filename="<report>-<period_start>-to-<period_end>.<ext>"`.
+- **CSV injection defense:** any cell whose text starts with `=`, `+`,
+  `-`, `@`, a tab, or a CR is prefixed with a leading `'` before being
+  written - the standard defusing prefix spreadsheet programs treat as
+  "this is text, not a formula" - since a department/employee display
+  name is organization-controlled free text with no character
+  restriction at the model level. The CSV also starts with a UTF-8 BOM
+  so Excel doesn't mis-decode a non-ASCII name.
+- The Finance export's CSV/PDF has four sections (summary, revenue by
+  day, invoice distribution, recent payments), mirroring the JSON
+  response's own shape rather than flattening it into one table; every
+  other export is a single table with the same fields as its JSON
+  sibling's own `data`.
+- No frontend consumes these yet - same documented gap as every other
+  FD-053 sidebar entry with no FR actually asking for it; `AnalyticsPage`
+  has no export button.
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -1396,6 +1429,10 @@ period).
 | GET | `/api/v1/organizations/{organization_id}/analytics/employees` | Per-employee performance for a resolved period (full/own scope) | FD-052 |
 | GET | `/api/v1/organizations/{organization_id}/analytics/departments` | Per-department breakdown for a resolved period (full scope only) | FD-052 |
 | GET | `/api/v1/organizations/{organization_id}/analytics/finance` | Financial analytics for a resolved period (full/Accountant-limited) | FD-052 |
+| GET | `/api/v1/organizations/{organization_id}/analytics/overview/export` | Overview metrics as a sanitized CSV or PDF | FD-054 |
+| GET | `/api/v1/organizations/{organization_id}/analytics/employees/export` | Employee performance as a sanitized CSV or PDF | FD-054 |
+| GET | `/api/v1/organizations/{organization_id}/analytics/departments/export` | Department analytics as a sanitized CSV or PDF | FD-054 |
+| GET | `/api/v1/organizations/{organization_id}/analytics/finance/export` | Financial report as a sanitized CSV or PDF | FD-054 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |
