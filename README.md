@@ -154,7 +154,16 @@ list/unread-filter/mark-one/mark-all-read, an unread-count badge and
 nav entry on `HomePage` following FD-024 through FD-046's own
 precedent of no shell/top-bar yet, and navigation to a notification's
 related task/request/invoice; see `frontend/README.md`'s own section)
-is Done.
+is Done. FD-051 (analytics service — `app/analytics/service.py`,
+service layer only, no routes yet; four deterministic, explicit-period,
+org-scoped functions matching FR-030 through FR-033: overview metrics,
+per-employee performance, per-department breakdown, financial
+analytics; reuses the already-reviewed `get_financial_summary` rather
+than recomputing money figures; no fabricated "trend" field — a caller
+wanting one calls this twice and compares two real results; department
+request-volume is derived via each request's assignee's own
+department, since `CustomerRequest` has no department column of its
+own) is Done.
 
 ## Local development infrastructure
 
