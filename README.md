@@ -172,7 +172,21 @@ calendar month, custom range — resolved into the explicit
 `period_start`/`period_end` dates the service layer requires; routes do
 their own 404 existence/ownership check for a cross-organization
 `target_membership_id`/`department_id` before calling into the
-service, per FD-051's own documented warning) is Done.
+service, per FD-051's own documented warning) is Done. FD-053
+(dashboards & analytics frontend — the real persistent shell
+(sidebar + top bar, spec Section 12.2) every prior frontend module's
+own "no sidebar yet" comment deferred to this task; a role-specific
+Overview dashboard per spec Section 12.3 (Owner/Manager/Employee/
+Accountant/CustomerSupport each see different real data, sourced from
+FD-052's own endpoints wherever an aggregate fits, plain list-endpoint
+reads where a widget is a row list rather than a total); a new
+`/analytics` page with Recharts charts gated per sub-endpoint exactly
+like the backend gates it, plus the FR-034 period selector; AI Reports/
+Activity/Settings sidebar entries and the top bar's search/theme
+selector are documented gaps, not oversights — no FD task ever builds
+those three pages, and dark theme is explicitly optional and
+unimplemented) is Done. FD-054 (CSV/PDF report export), also part of
+Epic E07 and depending only on FD-052 like this task did, remains.
 
 ## Local development infrastructure
 

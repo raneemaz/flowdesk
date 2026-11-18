@@ -26,9 +26,8 @@ interface Filters {
 
 const EMPTY_FILTERS: Filters = { search: "", role: "", status: "", departmentId: "" };
 
-// Deliberately minimal (no sidebar yet - FD-053 builds the real
-// dashboard shell once the analytics API exists). Reached from
-// HomePage's own "Employees" link.
+// Deliberately minimal (no page-level nav of its own). Reached via
+// the dashboard shell's "Employees" sidebar link (FD-053).
 export function EmployeeDirectoryPage() {
   const { activeMembership } = useOrganization();
   const organizationId = activeMembership?.organization.id ?? "";

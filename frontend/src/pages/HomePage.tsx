@@ -1,15 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
-import { listNotifications } from "@/api/notifications";
 import { Button } from "@/components/ui/button";
-import { OrganizationSwitcher } from "@/components/OrganizationSwitcher";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
-import { canManageCustomers } from "@/features/customers/permissions";
-import { canManageDepartments } from "@/features/employees/permissions";
-import { canManageInvoices } from "@/features/invoices/permissions";
-import { canAccessRequests } from "@/features/requests/permissions";
+import { RoleDashboard } from "@/features/dashboard/RoleDashboard";
 
 const ROLE_LABELS: Record<string, string> = {
   owner: "Owner",
@@ -19,37 +13,25 @@ const ROLE_LABELS: Record<string, string> = {
   customer_support: "Customer Support",
 };
 
-// Deliberately minimal - FD-018's scope is organization onboarding (the
-// creation flow and the switcher), not the real dashboard (spec Section
-// 12 - sidebar, role-specific stat cards, etc.), which lands incrementally
-// as the domain modules behind it get built.
+// FD-053: the real Overview dashboard (spec Section 12.3), replacing
+// this page's own former minimal nav - that nav, and the org
+// switcher/notifications it carried, now live in the persistent
+// shell (components/Sidebar.tsx/components/TopBar.tsx), which wraps
+// every protected page including this one. Only the "no organization
+// yet" prompt (FD-018's own scope) and the per-role widget set
+// (RoleDashboard) are this page's job now.
 export function HomePage() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { isLoading, activeMembership } = useOrganization();
   const organizationId = activeMembership?.organization.id ?? "";
 
-  // No role check - unlike every other nav entry, notifications has no
-  // backend Permission to gate on (docs/API.md); every member sees
-  // their own. per_page 1 here since only meta.total (the unread
-  // count) is read - same minimal-fetch convention
-  // NotificationsPage's own unread-count query uses, and the same
-  // query key, so navigating between the two shares one cache entry.
-  const { data: unreadCountData } = useQuery({
-    queryKey: ["notifications-unread-count", organizationId],
-    queryFn: () => listNotifications(organizationId, { unreadOnly: true, page: 1, perPage: 1 }),
-    enabled: Boolean(organizationId),
-  });
-  const unreadCount = unreadCountData?.meta.total ?? 0;
-
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background text-foreground">
-      <h1 className="text-2xl font-semibold">FlowDesk</h1>
-      {user && <p className="text-sm text-foreground/70">Logged in as {user.name} ({user.email})</p>}
-
+    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8 text-foreground">
       {isLoading && <p className="text-sm text-foreground/70">Loading your organizations…</p>}
 
       {!isLoading && !activeMembership && (
         <div className="flex flex-col items-center gap-3 rounded-md border border-border bg-card p-6 text-center">
+          {user && <p className="text-sm text-foreground/70">Logged in as {user.name} ({user.email})</p>}
           <p className="text-sm text-foreground/70">You don&apos;t belong to an organization yet.</p>
           <Button asChild>
             <Link to="/organizations/new">Create your first organization</Link>
@@ -58,47 +40,17 @@ export function HomePage() {
       )}
 
       {!isLoading && activeMembership && (
-        <div className="flex flex-col items-center gap-3">
-          <OrganizationSwitcher />
-          <p className="text-sm text-foreground/70" data-testid="active-organization">
-            Viewing <span className="font-medium text-foreground">{activeMembership.organization.name}</span> as{" "}
-            {ROLE_LABELS[activeMembership.role] ?? activeMembership.role}
-          </p>
-          <nav className="flex gap-4 text-sm font-medium text-primary">
-            <Link to="/notifications" className="hover:underline">
-              Notifications{unreadCount > 0 ? ` (${unreadCount})` : ""}
-            </Link>
-            <Link to="/employees" className="hover:underline">
-              Employees
-            </Link>
-            {canManageDepartments(activeMembership.role) && (
-              <Link to="/departments" className="hover:underline">
-                Departments
-              </Link>
-            )}
-            <Link to="/tasks" className="hover:underline">
-              Tasks
-            </Link>
-            {canManageCustomers(activeMembership.role) && (
-              <Link to="/customers" className="hover:underline">
-                Customers
-              </Link>
-            )}
-            {canAccessRequests(activeMembership.role) && (
-              <Link to="/requests" className="hover:underline">
-                Requests
-              </Link>
-            )}
-            {canManageInvoices(activeMembership.role) && (
-              <Link to="/invoices" className="hover:underline">
-                Invoices
-              </Link>
-            )}
-          </nav>
-        </div>
+        <>
+          <div>
+            <h1 className="text-2xl font-semibold">Overview</h1>
+            <p className="text-sm text-foreground/70" data-testid="active-organization">
+              Viewing <span className="font-medium text-foreground">{activeMembership.organization.name}</span> as{" "}
+              {ROLE_LABELS[activeMembership.role] ?? activeMembership.role}
+            </p>
+          </div>
+          <RoleDashboard role={activeMembership.role} organizationId={organizationId} />
+        </>
       )}
-
-      <Button onClick={() => void logout()}>Log out</Button>
-    </main>
+    </div>
   );
 }

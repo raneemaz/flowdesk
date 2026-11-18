@@ -25,8 +25,8 @@ interface Filters {
 
 const EMPTY_FILTERS: Filters = { search: "", status: "" };
 
-// Deliberately minimal (no sidebar yet - FD-053 builds the real
-// dashboard shell). Reached from HomePage's own "Customers" link.
+// Deliberately minimal (no page-level nav of its own). Reached via
+// the dashboard shell's "Customers" sidebar link (FD-053).
 // Only Owner/Manager/Accountant/CustomerSupport ever reach this page -
 // ProtectedRoute-level gating isn't needed since HomePage simply never
 // links here for an Employee, and the backend independently 403s

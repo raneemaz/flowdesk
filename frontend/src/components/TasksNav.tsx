@@ -9,9 +9,10 @@ const TABS = [
   { to: "/tasks/mine", label: "My Tasks" },
 ];
 
-// Tabs for FR-015's four task views - deliberately not a sidebar
-// (FD-053 builds the real dashboard shell, see HomePage.tsx), just
-// enough navigation to reach each view from any of the others.
+// Tabs for FR-015's four task views - a separate concern from the
+// dashboard shell's own "Tasks" sidebar link (FD-053), which only
+// gets you to one of these four; this is what lets you reach the
+// other three from any of them.
 export function TasksNav() {
   const location = useLocation();
 

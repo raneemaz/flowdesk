@@ -25,9 +25,9 @@ interface Filters {
 
 const EMPTY_FILTERS: Filters = { status: "", customerId: "", dueDateFrom: "", dueDateTo: "" };
 
-// Deliberately minimal (no sidebar yet - FD-053 builds the real
-// dashboard shell), same convention CustomerListPage/RequestListPage
-// already established. Reached from HomePage's own "Invoices" link,
+// Deliberately minimal (no page-level nav of its own), same
+// convention CustomerListPage/RequestListPage already established.
+// Reached via the dashboard shell's "Invoices" sidebar link (FD-053),
 // shown only to canManageInvoices - an Employee/Manager/CustomerSupport
 // hitting this route directly would just get 403s from every request
 // it makes (INVOICE_PAYMENT_MANAGE is none for those roles).

@@ -12,9 +12,9 @@ import type { NotificationPublic } from "@/types/notification";
 
 const PER_PAGE = 20;
 
-// FD-050. Deliberately minimal (no sidebar/top-bar yet - FD-053 builds
-// the real dashboard shell), same convention every other list page in
-// this frontend already established. No role check here at all -
+// FD-050. Deliberately minimal (no page-level nav of its own) - the
+// shell's own top bar (FD-053) already carries an unread-count badge
+// linking here. No role check here at all -
 // unlike every other feature page, notifications has no backend
 // Permission to gate on (docs/API.md); every signed-in member sees
 // this page, scoped to their own notifications only.

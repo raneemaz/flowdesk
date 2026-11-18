@@ -3,8 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 
+import * as analyticsApi from "@/api/analytics";
 import * as authApi from "@/api/auth";
-import * as notificationsApi from "@/api/notifications";
 import * as organizationsApi from "@/api/organizations";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { OrganizationProvider } from "@/contexts/OrganizationContext";
@@ -51,12 +51,8 @@ describe("HomePage", () => {
     expect(screen.getByRole("link", { name: "Create your first organization" })).toBeInTheDocument();
   });
 
-  it("shows the active organization and switcher for a user who already has one", async () => {
+  it("shows the active organization's name/role and dispatches to that role's own dashboard", async () => {
     vi.spyOn(authApi, "getCurrentUser").mockResolvedValue(USER);
-    vi.spyOn(notificationsApi, "listNotifications").mockResolvedValue({
-      notifications: [],
-      meta: { page: 1, per_page: 1, total: 3, total_pages: 3 },
-    });
     vi.spyOn(organizationsApi, "listOrganizations").mockResolvedValue([
       {
         organization: {
@@ -77,11 +73,26 @@ describe("HomePage", () => {
         joined_at: "now",
       },
     ]);
+    vi.spyOn(analyticsApi, "getOverviewAnalytics").mockResolvedValue({
+      period_start: "2026-01-01",
+      period_end: "2026-01-31",
+      employee_count: 1,
+      active_tasks: 0,
+      completed_tasks: 0,
+      overdue_tasks: 0,
+      open_requests: 0,
+      monthly_invoiced: "0",
+      monthly_collected: "0",
+    });
+    vi.spyOn(analyticsApi, "getEmployeeAnalytics").mockResolvedValue([]);
 
     renderHome();
 
     await waitFor(() => expect(screen.getByTestId("active-organization")).toHaveTextContent("Viewing Acme Inc as Owner"));
-    expect(screen.getByLabelText("Current organization")).toBeInTheDocument();
-    expect(await screen.findByRole("link", { name: "Notifications (3)" })).toHaveAttribute("href", "/notifications");
+    // The dispatched OwnerDashboard's own section headings, proving
+    // HomePage actually rendered RoleDashboard rather than stopping at
+    // the header.
+    expect(await screen.findByText("Business stats")).toBeInTheDocument();
+    expect(screen.getByText("Financial overview (this month)")).toBeInTheDocument();
   });
 });

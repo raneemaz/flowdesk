@@ -41,8 +41,8 @@ const EMPTY_FILTERS: Filters = {
   dueDateTo: "",
 };
 
-// Deliberately minimal (no sidebar yet - FD-053 builds the real
-// dashboard shell). Reached from HomePage's own "Requests" link. No
+// Deliberately minimal (no page-level nav of its own). Reached via
+// the dashboard shell's "Requests" sidebar link (FD-053). No
 // separate "My Requests" view - GET /customer-requests already
 // auto-restricts an Employee (assigned scope) to their own requests
 // server-side, the same reasoning TaskListPage (not a locked

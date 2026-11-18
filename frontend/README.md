@@ -10,15 +10,17 @@ directory, profile, department management (FD-024), the task
 frontend - list/board/calendar/My Tasks, assignment, comments, history
 (FD-032), the customer & request frontend - directory, profile, queue,
 assignment, status controls (FD-039), the invoice frontend - editor,
-payment form, balance/status refresh, PDF access (FD-046), and the
+payment form, balance/status refresh, PDF access (FD-046), the
 notification frontend - center, unread count, mark read, navigate to
-record (FD-050) - exist so far.
+record (FD-050), and the dashboards & analytics frontend - the real
+persistent shell, role-specific Overview dashboards, and a charted
+Analytics page over FD-052's API (FD-053) - exist so far.
 
 ## Stack
 
 Vite, React 19, TypeScript (strict mode), React Router, TanStack Query,
-React Hook Form + Zod, Tailwind CSS v4, shadcn/ui primitives, Vitest +
-React Testing Library.
+React Hook Form + Zod, Tailwind CSS v4, shadcn/ui primitives, Recharts,
+Vitest + React Testing Library.
 
 ## Structure
 
@@ -211,11 +213,12 @@ width.
 
 ## Employee directory, profiles & department management (FD-024)
 
-- **No sidebar/dashboard shell yet** - FD-053 (after the analytics API,
-  FD-052) builds the real one; `HomePage` keeps its own minimal
-  `nav` with an "Employees" link (shown to every active member -
-  `EMPLOYEE_DIRECTORY_VIEW` never grants `none`) and a "Departments"
-  link (shown only for Owner/Manager).
+- **No sidebar/dashboard shell yet at the time this module was built**
+  (FD-053, built later, added the real one - see its own section
+  below); `HomePage` carried its own minimal `nav` with an "Employees"
+  link (shown to every active member - `EMPLOYEE_DIRECTORY_VIEW` never
+  grants `none`) and a "Departments" link (shown only for
+  Owner/Manager) until then.
 - **`EmployeeDirectoryPage`** (`/employees`) - search (name only, debounced
   by requiring a "Search" submit rather than per-keystroke), role/status
   filters, and a department filter that only appears for a viewer who can
@@ -262,15 +265,16 @@ width.
   stale cross-org data visible; no write path ever treats a passing
   permission hint as a substitute for the real `PATCH`/`POST`/`DELETE`
   call actually succeeding.
-- **Known test-coverage gap** (flagged by the reviewer, not treated as
-  blocking): no automated test exercises switching the active
-  organization while one of these pages is mounted and asserting the
-  previous organization's rows disappear before the new one's data
-  arrives. In this app's actual navigation, the org switcher only lives
-  on `HomePage` - these pages are never mounted at the same time as it -
-  so the scenario doesn't correspond to a real user flow today; revisit
-  if/when a persistent nav shell (FD-053) puts the switcher and these
-  pages on screen together.
+- **Known test-coverage gap at the time this module was built**
+  (flagged by the reviewer, not treated as blocking then): no automated
+  test exercised switching the active organization while one of these
+  pages was mounted, since the org switcher only lived on `HomePage` at
+  the time - these pages were never mounted at the same time as it.
+  FD-053's persistent shell now puts the switcher and every page on
+  screen together, which is exactly the scenario this note said to
+  revisit - see `DashboardLayout.test.tsx`'s own
+  `"switching organizations clears the previous organization's data
+  from a wrapped page"` test, added as part of FD-053 to close this gap.
 
 **Verified against the real backend in a real browser**, as both an
 Owner and a freshly-added Employee-role member of the same organization:
@@ -552,17 +556,21 @@ line item from the new `line-items` endpoint before saving the change.
 
 ## Notification frontend - center, unread count, mark read, navigate to record (FD-050)
 
-- **No real top bar/sidebar shell exists yet** (spec Section 12.2's
-  "search, notifications, current organization switcher, user profile,
-  theme selector" top bar is FD-053's job) - follows the exact
+- **No real top bar/sidebar shell existed yet at the time this module
+  was built** (spec Section 12.2's "search, notifications, current
+  organization switcher, user profile, theme selector" top bar was
+  FD-053's job, done later) - until then this followed the exact
   precedent every prior module already established: a conditional
   `<Link>` added to `HomePage`'s own `nav`, not a new shell component.
-  Unlike every other nav entry, it's shown unconditionally (no role
+  Unlike every other nav entry, it was shown unconditionally (no role
   check) - the backend has no `Permission` for this entity at all
   (`docs/API.md`'s Notifications section), so there's no UI-only hint
-  to mirror.
-- **The unread count badge** (`HomePage`'s "Notifications (N)" link,
-  and `NotificationsPage`'s own "Mark all read (N)" button) both read
+  to mirror. FD-053 later moved this link into the shell's own
+  `TopBar`, carrying the same unconditional-no-role-check property and
+  the same unread-count query/key forward unchanged.
+- **The unread count badge** (originally `HomePage`'s "Notifications (N)"
+  link, now the shell's `TopBar` - see its own section below - and
+  `NotificationsPage`'s own "Mark all read (N)" button) both read
   `meta.total` from a minimal `listNotifications(..., { unreadOnly: true,
   page: 1, perPage: 1 })` call - `per_page: 1` since only the
   pagination total is ever read, not the single row it returns. Both
@@ -603,6 +611,145 @@ unread marker disappeared, "Mark all read" became disabled, and the
 confirmed the now-read notification correctly dropped out of the
 filtered view. Every request in this flow (list, unread-count, mark-read)
 returned `200`.
+
+## Dashboards & analytics frontend (FD-053)
+
+Two separate things, both new: the real persistent dashboard shell
+(spec Section 12.2) every prior module's own "no sidebar yet" comment
+pointed at, and a dedicated `/analytics` page with Recharts
+visualizations over FD-052's four endpoints, date-filtered by FR-034's
+named taxonomy.
+
+**The shell** (`components/Sidebar.tsx`, `components/TopBar.tsx`,
+`components/DashboardLayout.tsx`) wraps every `ProtectedRoute` child
+as one layout route (`routes/router.tsx`) rather than per-page.
+`Sidebar` only ever links to a page that actually exists - spec
+Section 12.2 also names AI Reports, Activity, and Settings, none of
+which any task in the 65-task backlog ever builds a frontend page for
+(FD-047/FD-048 only built their read APIs; FD-060 is AI Reports'
+own still-future frontend task) - linking to any of the three would
+be exactly the placeholder UI spec Section 32 forbids, so they're a
+deliberate, documented omission, not an oversight. The top bar's
+"search" and "theme selector" (also spec Section 12.2) are the same
+kind of deliberate gap: no backend endpoint exists for a cross-entity
+search, and `index.css` already documents dark theme as explicitly
+optional and unimplemented (spec Section 12.1) - a toggle with
+nothing to toggle. `Sidebar` hides itself entirely with no active
+membership (e.g. a brand-new user on `/organizations/new`); `TopBar`
+always renders, so logging out still works then.
+
+**`HomePage`** (`/`) is now the real role-specific Overview dashboard
+(spec Section 12.3), dispatching via `features/dashboard/RoleDashboard.tsx`
+to one component per role:
+- **Owner** (`OwnerDashboard`) - business stats + financial overview
+  from a single `GET .../analytics/overview` call (its own
+  `monthly_invoiced`/`monthly_collected` *is* the financial overview -
+  never a second call to the finance endpoint just to re-show numbers
+  overview already carries), plus a top-5 employee performance preview
+  linking to the full `/analytics` page. "AI weekly summary" (the
+  spec's own fifth item) is a documented gap - that's FD-055 onward
+  (the AI reporting epic), not built yet.
+- **Manager** (`ManagerDashboard`) - team workload/task progress from
+  the same overview call (`full` scope, same as Owner's), pending
+  reviews (`GET .../tasks?status=under_review`, org-wide), a request
+  queue preview, and department-level activity reusing the exact
+  `DepartmentComparisonChart` the Analytics page's own Departments
+  section uses.
+- **Employee** (`EmployeeDashboard`) - my tasks and upcoming deadlines
+  are two views over one `GET .../tasks` call (`TASK_VIEW_UPDATE`'s
+  `assigned` scope already restricts it to this caller server-side, no
+  own-membership-id lookup needed); "upcoming" and "overdue" are kept
+  genuinely distinct (spec Section 12.3 lists them as two separate
+  items) - a task whose `due_date` has already passed is excluded from
+  "upcoming deadlines" even though it's still open, and the overdue
+  *count* itself comes from `GET .../analytics/employees`'s own
+  `own`-scope-forced-to-self `overdue_tasks` (a precise server
+  aggregate, not a client count over a possibly-partial task page).
+  Recent activity and notifications are small, unpaginated feed reads
+  (`api/activity.ts`'s `listActivity`, new this task - no dedicated
+  Activity list page exists, only this read; `api/notifications.ts`
+  already existed).
+- **Accountant** (`AccountantDashboard`) - a single `GET
+  .../analytics/finance` call (`limited`+Accountant scope, honored
+  server-side) covers every one of the spec's own four items
+  (invoices, outstanding balances, payments, monthly collections) -
+  this dashboard never makes more than one request.
+- **CustomerSupport** (`CustomerSupportDashboard`) - `CUSTOMER_REQUEST_MANAGE`
+  is `full` (org-wide, not self-scoped) for this role, unlike
+  Employee's `assigned` scope on tasks, so "my assignments"/"my open
+  assignments" need this caller's own membership_id first - the same
+  email-cross-reference-against-the-employee-directory lookup
+  `pages/MyTasksPage.tsx` already established
+  (`features/dashboard/useOwnMembershipId.ts`, extracted here rather
+  than touching that page). "Response workload" is read as this
+  person's *currently open* assignment count - a real, defensible
+  proxy for what's on their plate right now, not a fabricated
+  response-time metric no endpoint computes.
+
+**No server-side "not in" filter exists for request status**
+(`api/customerRequests.ts` only accepts one `status` value per call),
+so an exact "how many requests are open" figure - used by both
+Manager's and CustomerSupport's dashboards - is the sum of one
+minimal (`perPage: 1`, reading only `meta.total`) request per open
+status (`features/dashboard/useOpenRequestCount.ts`) - four small
+real server totals, never an estimate from a single partial page.
+
+**The `/analytics` page** (`pages/AnalyticsPage.tsx`) is the fuller,
+explorable view: a `PeriodSelector` (`features/analytics/PeriodSelector.tsx`)
+for FR-034's named date-filter taxonomy (last 7/30/90 days,
+current/previous month, custom range - `period_start`/`period_end`
+inputs only ever appear for `custom`, mirroring the backend's own
+"given together, only for custom" validation), and four sections -
+Overview, Departments, Employee performance, Finance - each gated
+exactly the way FD-052's own endpoint gates it
+(`features/analytics/permissions.ts`), never by `ANALYTICS_VIEW`'s own
+scope comments. A `custom` period with an incomplete range disables
+every query rather than firing one that would just `422` - and,
+since a *disabled* TanStack Query v5 query is still technically
+"pending" (no request was ever sent, but `isPending` doesn't
+distinguish that from "in flight"), every section explicitly checks
+`filter !== null` before showing its own loading state, so an
+incomplete custom range shows the "choose dates" prompt instead of an
+indefinite spinner.
+
+**Charts** (`features/analytics/charts.tsx`) use Recharts, newly added
+to `package.json` - `RevenueByDayChart` (line), `InvoiceDistributionChart`
+(bar, colored by `InvoiceStatus`), `DepartmentComparisonChart` (grouped
+bar) - reused as-is by both the Analytics page and the Manager/
+Accountant dashboards above rather than duplicated. Recharts needs a
+real layout box to render anything at all; jsdom (this project's test
+environment) reports every element as 0×0 with no `ResizeObserver`,
+so `src/test/setup.ts` now stubs both globally - without it, every
+chart-content assertion in a test would silently find an empty
+container, not a failure pointing at the real cause.
+
+**`features/analytics/widgets.tsx`** (`Section`/`StatCard`/`Loading`/
+`QueryError`) - shared presentational pieces for the Analytics page
+and all five role dashboards, kept in one place rather than
+duplicated across six files.
+
+**Verified against the real backend in a real browser**
+(`FLASK_ENV=testing`): registered an Owner, created an organization,
+confirmed the shell (sidebar link set, org switcher, notification
+badge, user/role, logout) and the Owner's Overview dashboard (real
+zeros from a brand-new org); opened `/analytics`, switched through
+every named period and confirmed `current_month`/empty-state charts
+rendered correctly, then confirmed `custom` disabled every section
+until both dates were filled and resolved correctly once they were
+(this is also what caught the indefinite-"Loading…" bug above - fixed
+before this note was written, not after); created a second user,
+granted them an Employee membership, created and assigned them a task
+with a past due date, and confirmed as that user: the sidebar
+correctly omitted Departments/Customers/Invoices but kept
+Requests/Analytics (`CUSTOMER_REQUEST_MANAGE` is `assigned`, not
+`none`, for Employee); the Overview dashboard's "My tasks" and
+"Overdue tasks" both reflected the real assignment, while "Upcoming
+deadlines" correctly read "Nothing due soon" rather than re-showing
+the same already-overdue task (this is also what caught the
+upcoming-vs-overdue conflation bug above); and `/analytics` showed
+only the Employee performance section, with exactly one row - this
+caller's own, server-forced regardless of any target - no Overview/
+Departments/Finance sections rendered for this role at all.
 
 ## Setup
 

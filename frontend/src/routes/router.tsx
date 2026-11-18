@@ -1,5 +1,7 @@
 import { createBrowserRouter } from "react-router-dom";
 
+import { AnalyticsPage } from "@/pages/AnalyticsPage";
+import { DashboardLayout } from "@/components/DashboardLayout";
 import { CreateOrganizationPage } from "@/pages/CreateOrganizationPage";
 import { CustomerDetailPage } from "@/pages/CustomerDetailPage";
 import { CustomerListPage } from "@/pages/CustomerListPage";
@@ -28,25 +30,31 @@ export const router = createBrowserRouter([
   {
     element: <ProtectedRoute />,
     children: [
-      { path: "/", element: <HomePage /> },
-      { path: "/organizations/new", element: <CreateOrganizationPage /> },
-      { path: "/employees", element: <EmployeeDirectoryPage /> },
-      { path: "/employees/:membershipId", element: <EmployeeProfilePage /> },
-      { path: "/departments", element: <DepartmentsPage /> },
-      { path: "/tasks", element: <TaskListPage /> },
-      { path: "/tasks/board", element: <TaskBoardPage /> },
-      { path: "/tasks/calendar", element: <TaskCalendarPage /> },
-      { path: "/tasks/mine", element: <MyTasksPage /> },
-      { path: "/tasks/:taskId", element: <TaskDetailPage /> },
-      { path: "/customers", element: <CustomerListPage /> },
-      { path: "/customers/:customerId", element: <CustomerDetailPage /> },
-      { path: "/requests", element: <RequestListPage /> },
-      { path: "/requests/:requestId", element: <RequestDetailPage /> },
-      { path: "/invoices", element: <InvoiceListPage /> },
-      { path: "/invoices/new", element: <InvoiceFormPage /> },
-      { path: "/invoices/:invoiceId", element: <InvoiceDetailPage /> },
-      { path: "/invoices/:invoiceId/edit", element: <InvoiceFormPage /> },
-      { path: "/notifications", element: <NotificationsPage /> },
+      {
+        element: <DashboardLayout />,
+        children: [
+          { path: "/", element: <HomePage /> },
+          { path: "/organizations/new", element: <CreateOrganizationPage /> },
+          { path: "/employees", element: <EmployeeDirectoryPage /> },
+          { path: "/employees/:membershipId", element: <EmployeeProfilePage /> },
+          { path: "/departments", element: <DepartmentsPage /> },
+          { path: "/tasks", element: <TaskListPage /> },
+          { path: "/tasks/board", element: <TaskBoardPage /> },
+          { path: "/tasks/calendar", element: <TaskCalendarPage /> },
+          { path: "/tasks/mine", element: <MyTasksPage /> },
+          { path: "/tasks/:taskId", element: <TaskDetailPage /> },
+          { path: "/customers", element: <CustomerListPage /> },
+          { path: "/customers/:customerId", element: <CustomerDetailPage /> },
+          { path: "/requests", element: <RequestListPage /> },
+          { path: "/requests/:requestId", element: <RequestDetailPage /> },
+          { path: "/invoices", element: <InvoiceListPage /> },
+          { path: "/invoices/new", element: <InvoiceFormPage /> },
+          { path: "/invoices/:invoiceId", element: <InvoiceDetailPage /> },
+          { path: "/invoices/:invoiceId/edit", element: <InvoiceFormPage /> },
+          { path: "/notifications", element: <NotificationsPage /> },
+          { path: "/analytics", element: <AnalyticsPage /> },
+        ],
+      },
     ],
   },
 ]);
