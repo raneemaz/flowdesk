@@ -1200,12 +1200,14 @@ first.
   permissions change might grant `limited` to, rather than falling
   through to an unfiltered result.
 
-## Notifications (FD-048)
+## Notifications (FD-048/FD-049)
 
-Centralized in `backend/app/notifications/`. **This task is
-infrastructure only** - there is no code path yet that creates a
-`Notification` row (FR-038's trigger list is FD-049's job); these
-three endpoints are the model's read/mark-read side (FR-039).
+Centralized in `backend/app/notifications/`. These three endpoints are
+the model's read/mark-read side (FR-039); see `docs/DATABASE.md`'s
+`notifications` section for the full list of FD-049's wired trigger
+points (task/request assignment, task/request comments, request
+status changes, invoice paid) and its two named, deliberately unwired
+gaps ("invitation received", "deadline approaching/overdue").
 
 **No `Permission` gates any of these endpoints** - unlike every other
 organization-scoped resource in this API, Section 7.2's baseline

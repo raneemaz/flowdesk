@@ -140,10 +140,16 @@ feature exists yet to log; see `docs/DATABASE.md`'s `activity_logs`
 section and `docs/API.md`'s Activity log section) is Done, the first
 task of Epic E07. FD-048 (notification infrastructure — `Notification`
 model, recipient-scoped with no RBAC permission at all since the spec
-defines none for this entity, read/mark-one/mark-all-read endpoints;
-infrastructure only, nothing creates a notification yet — that's
-FD-049's job; see `docs/DATABASE.md`'s `notifications` section and
-`docs/API.md`'s Notifications section) is Done.
+defines none for this entity, read/mark-one/mark-all-read endpoints)
+and FD-049 (event-based notifications — wires the shared
+`create_notification()`/`create_notifications_for_roles()` service
+into task/request assignment, task/request comments, request status
+changes, and invoice-paid events fanned out to Owner/Accountant;
+"invitation received" and "deadline approaching/overdue" are
+documented gaps — no pre-membership recipient and no scheduler
+infrastructure exists yet, respectively; see `docs/DATABASE.md`'s
+`notifications` section and `docs/API.md`'s Notifications section) are
+both Done.
 
 ## Local development infrastructure
 

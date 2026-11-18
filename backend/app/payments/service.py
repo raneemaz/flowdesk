@@ -37,7 +37,8 @@ from app.activity.service import log_activity
 from app.errors import APIError
 from app.extensions import db
 from app.invoices.service import get_invoice_or_404
-from app.models import Invoice, InvoiceStatus, Payment
+from app.models import Invoice, InvoiceStatus, MembershipRole, Payment
+from app.notifications.service import create_notifications_for_roles
 
 # A payment may only be recorded against an invoice that's actually
 # been billed and isn't already fully settled or voided - draft
@@ -215,6 +216,22 @@ def record_payment(
             payment.id,
             metadata={"amount": str(amount), "invoice_id": str(invoice_id)},
         )
+        # FR-038 "invoice paid (authorized users)" - fired when the
+        # invoice is fully settled (not on every partial payment), fanned
+        # out to every active Owner/Accountant (the same role set
+        # INVOICE_PAYMENT_MANAGE/FINANCIAL_REPORTS_VIEW already grant
+        # `full` to), excluding whoever recorded this payment themselves.
+        if invoice.status == InvoiceStatus.PAID:
+            create_notifications_for_roles(
+                organization_id,
+                (MembershipRole.OWNER, MembershipRole.ACCOUNTANT),
+                "invoice_paid",
+                "An invoice was paid in full",
+                f"Invoice {invoice.invoice_number} was paid in full.",
+                "invoice",
+                invoice.id,
+                exclude_membership_id=recorder_membership_id,
+            )
         db.session.commit()
     except APIError:
         db.session.rollback()

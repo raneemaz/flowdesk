@@ -19,6 +19,7 @@ from app.authz.permissions import PermissionScope
 from app.authz.service import check_scope_allows
 from app.errors import APIError
 from app.extensions import db
+from app.notifications.service import create_notification
 from app.models import (
     Department,
     DepartmentStatus,
@@ -279,6 +280,16 @@ def assign_task(
             task.id,
             metadata={"assignee_membership_id": str(assignee_membership_id)},
         )
+        if assignee_membership_id != actor_membership_id:
+            create_notification(
+                organization_id,
+                assignee_membership_id,
+                "task_assigned",
+                "You were assigned a task",
+                f'You were assigned the task "{task.title}".',
+                "task",
+                task.id,
+            )
     db.session.commit()
     return task
 
@@ -507,6 +518,16 @@ def create_task_comment(
     _set_comment_body(comment, body)
 
     db.session.add(comment)
+    if task.assignee_membership_id is not None and task.assignee_membership_id != author_membership_id:
+        create_notification(
+            organization_id,
+            task.assignee_membership_id,
+            "task_comment_added",
+            "New comment on your task",
+            f'A new comment was added to "{task.title}".',
+            "task",
+            task.id,
+        )
     db.session.commit()
     return comment
 

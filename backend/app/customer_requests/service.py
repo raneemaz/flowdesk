@@ -26,6 +26,7 @@ from app.authz.permissions import PermissionScope
 from app.authz.service import check_scope_allows
 from app.errors import APIError
 from app.extensions import db
+from app.notifications.service import create_notification
 from app.models import (
     Customer,
     CustomerRequest,
@@ -269,6 +270,16 @@ def assign_request(
         )
 
     db.session.add_all(history_entries)
+    if assignee_membership_id is not None and assignee_membership_id != actor_membership_id:
+        create_notification(
+            organization_id,
+            assignee_membership_id,
+            "request_assigned",
+            "You were assigned a customer request",
+            f'You were assigned the request "{request.title}".',
+            "customer_request",
+            request.id,
+        )
     db.session.commit()
     return request
 
@@ -401,6 +412,22 @@ def update_request_status(
                 metadata={"title": request.title},
             )
 
+        # FR-038 "request ... status changed" - broader than the
+        # activity log's own "resolved only" scope above (FR-036 is
+        # specific to "resolved"; FR-038 says "status changed", any
+        # transition), fired for every real transition, not just this
+        # one target status.
+        if request.assignee_membership_id is not None and request.assignee_membership_id != actor_membership_id:
+            create_notification(
+                organization_id,
+                request.assignee_membership_id,
+                "request_status_changed",
+                "A customer request's status changed",
+                f'"{request.title}" is now {new_status.value.replace("_", " ")}.',
+                "customer_request",
+                request.id,
+            )
+
     if history_entries:
         db.session.add_all(history_entries)
     db.session.commit()
@@ -447,6 +474,16 @@ def create_request_comment(
     _set_comment_body(comment, body)
 
     db.session.add(comment)
+    if request.assignee_membership_id is not None and request.assignee_membership_id != author_membership_id:
+        create_notification(
+            organization_id,
+            request.assignee_membership_id,
+            "request_comment_added",
+            "New comment on your customer request",
+            f'A new comment was added to "{request.title}".',
+            "customer_request",
+            request.id,
+        )
     db.session.commit()
     return comment
 

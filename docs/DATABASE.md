@@ -839,15 +839,33 @@ log (`CASCADE`). Deleting the actor's `Membership` only clears
 `actor_membership_id` (`SET NULL`) - a log entry is organization
 history and survives its actor's membership.
 
-### `notifications` (FD-048)
+### `notifications` (FD-048/FD-049)
 
 Fields per spec Section 10.1's Notification entity and FR-038/FR-039.
-**This task is infrastructure only** - the model, migration, and
-read/mark-read endpoints exist, but nothing in this task ever calls
-`app.notifications.service.create_notification()`; FR-038's own
-trigger list (task assigned, deadline approaching/overdue, comment
-added, request assigned/status changed, invoice paid, invitation
-received) is FD-049's job to wire in.
+FD-048 built the model, migration, and read/mark-read endpoints; FD-049
+wires `create_notification()`/`create_notifications_for_roles()` into
+5 of FR-038's 7 named triggers:
+
+- `task_assigned` (`app.tasks.service.assign_task`) - the new assignee, on a real (non-idempotent) assignment, excluding self-assignment
+- `task_comment_added` (`app.tasks.service.create_task_comment`) - the task's assignee, if set and not the comment's own author
+- `request_assigned` (`app.customer_requests.service.assign_request`) - the new assignee, same shape as `task_assigned`
+- `request_status_changed` (`app.customer_requests.service.update_request_status`) - the request's assignee, on **every** real status transition, not just "resolved" (broader than `activity_logs`' own `request_resolved`-only scope - FR-038 literally says "status changed", FR-036 says "resolved")
+- `request_comment_added` (`app.customer_requests.service.create_request_comment`) - the request's assignee, same shape as `task_comment_added`
+- `invoice_paid` (`app.payments.service.record_payment`, via `create_notifications_for_roles`) - every active Owner/Accountant in the organization (FR-038's own "(authorized users)", matching `INVOICE_PAYMENT_MANAGE`/`FINANCIAL_REPORTS_VIEW`'s existing Owner+Accountant-only grant), excluding whoever recorded the payment - fired only when the invoice reaches `paid` (fully settled), never on a partial payment
+
+**Two named triggers are deliberately not wired, each a structural gap:**
+- **"invitation received"** - `recipient_membership_id` is required, but an invitee has no `Membership` row until they accept; there's no valid recipient to attach this to yet. FD-016's `create_invitation` already sends a best-effort email regardless (FR-039's "in-app first; email is a later extension" already has a fallback here).
+- **"deadline approaching/overdue"** - time-based, not event-based (this task's own title), and no scheduled-job infrastructure exists in this codebase yet (Section 14 introduces Celery+Redis only at FD-059); FD-049's own dependency list names no scheduler task.
+
+**"No duplicate delivery"** (the Epic's own acceptance criterion) is
+satisfied by never notifying unless the call site's pre-existing
+idempotency/no-op guard says a real change happened - `assign_task`/
+`assign_request`'s "same assignee is a no-op" check,
+`update_request_status`'s "same status is a no-op" check, and
+`record_payment`'s existing idempotent-replay path (the notification
+call sits in the same `try` block as `log_activity`'s own call, before
+the one commit - never reached on a replay or a lost-race recovery).
+No trigger ever notifies the actor about their own action.
 
 | Column | Type | Notes |
 |---|---|---|

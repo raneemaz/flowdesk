@@ -43,16 +43,15 @@ class Notification(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
 
     `entity_type`/`entity_id` mirror `ActivityLog`'s own polymorphic
     reference pattern exactly (no FK on `entity_id` - its target table
-    depends on `entity_type`) - FD-049 is what will actually populate
-    these as it wires real trigger points in.
+    depends on `entity_type`).
 
-    **FD-048 is infrastructure only** - nothing in this task calls
-    `app.notifications.service.create_notification()` from any business
-    event. FR-038's own trigger list (task assigned, deadline
-    approaching/overdue, comment added, request assigned/status
-    changed, invoice paid, invitation received) is FD-049's job to wire
-    in, once its own dependencies (FD-027/028/037/043, all already
-    Done) are joined by this task's read-side infrastructure.
+    **FD-049 wires `app.notifications.service.create_notification()`/
+    `create_notifications_for_roles()` into 5 of FR-038's 7 named
+    triggers** (task assigned, task/request comment added, request
+    assigned/status changed, invoice paid) - see that module's own
+    docstring for the exact hook points and for why the other two
+    ("invitation received", "deadline approaching/overdue") are
+    documented gaps rather than guessed around.
 
     No `require_permission`-gated `Permission` exists for this entity,
     unlike every other organization-scoped resource in this codebase -
