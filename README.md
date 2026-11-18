@@ -149,7 +149,12 @@ changes, and invoice-paid events fanned out to Owner/Accountant;
 documented gaps — no pre-membership recipient and no scheduler
 infrastructure exists yet, respectively; see `docs/DATABASE.md`'s
 `notifications` section and `docs/API.md`'s Notifications section) are
-both Done.
+both Done. FD-050 (notification frontend — a `NotificationsPage` with
+list/unread-filter/mark-one/mark-all-read, an unread-count badge and
+nav entry on `HomePage` following FD-024 through FD-046's own
+precedent of no shell/top-bar yet, and navigation to a notification's
+related task/request/invoice; see `frontend/README.md`'s own section)
+is Done.
 
 ## Local development infrastructure
 

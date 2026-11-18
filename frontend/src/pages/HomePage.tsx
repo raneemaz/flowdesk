@@ -1,5 +1,7 @@
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
+import { listNotifications } from "@/api/notifications";
 import { Button } from "@/components/ui/button";
 import { OrganizationSwitcher } from "@/components/OrganizationSwitcher";
 import { useAuth } from "@/contexts/AuthContext";
@@ -24,6 +26,20 @@ const ROLE_LABELS: Record<string, string> = {
 export function HomePage() {
   const { user, logout } = useAuth();
   const { isLoading, activeMembership } = useOrganization();
+  const organizationId = activeMembership?.organization.id ?? "";
+
+  // No role check - unlike every other nav entry, notifications has no
+  // backend Permission to gate on (docs/API.md); every member sees
+  // their own. per_page 1 here since only meta.total (the unread
+  // count) is read - same minimal-fetch convention
+  // NotificationsPage's own unread-count query uses, and the same
+  // query key, so navigating between the two shares one cache entry.
+  const { data: unreadCountData } = useQuery({
+    queryKey: ["notifications-unread-count", organizationId],
+    queryFn: () => listNotifications(organizationId, { unreadOnly: true, page: 1, perPage: 1 }),
+    enabled: Boolean(organizationId),
+  });
+  const unreadCount = unreadCountData?.meta.total ?? 0;
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background text-foreground">
@@ -49,6 +65,9 @@ export function HomePage() {
             {ROLE_LABELS[activeMembership.role] ?? activeMembership.role}
           </p>
           <nav className="flex gap-4 text-sm font-medium text-primary">
+            <Link to="/notifications" className="hover:underline">
+              Notifications{unreadCount > 0 ? ` (${unreadCount})` : ""}
+            </Link>
             <Link to="/employees" className="hover:underline">
               Employees
             </Link>

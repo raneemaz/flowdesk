@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 
 import * as authApi from "@/api/auth";
+import * as notificationsApi from "@/api/notifications";
 import * as organizationsApi from "@/api/organizations";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { OrganizationProvider } from "@/contexts/OrganizationContext";
@@ -52,6 +53,10 @@ describe("HomePage", () => {
 
   it("shows the active organization and switcher for a user who already has one", async () => {
     vi.spyOn(authApi, "getCurrentUser").mockResolvedValue(USER);
+    vi.spyOn(notificationsApi, "listNotifications").mockResolvedValue({
+      notifications: [],
+      meta: { page: 1, per_page: 1, total: 3, total_pages: 3 },
+    });
     vi.spyOn(organizationsApi, "listOrganizations").mockResolvedValue([
       {
         organization: {
@@ -77,5 +82,6 @@ describe("HomePage", () => {
 
     await waitFor(() => expect(screen.getByTestId("active-organization")).toHaveTextContent("Viewing Acme Inc as Owner"));
     expect(screen.getByLabelText("Current organization")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Notifications (3)" })).toHaveAttribute("href", "/notifications");
   });
 });

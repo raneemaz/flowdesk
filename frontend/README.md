@@ -9,9 +9,10 @@ creation flow, org switcher (FD-018), the employee frontend -
 directory, profile, department management (FD-024), the task
 frontend - list/board/calendar/My Tasks, assignment, comments, history
 (FD-032), the customer & request frontend - directory, profile, queue,
-assignment, status controls (FD-039), and the invoice frontend -
-editor, payment form, balance/status refresh, PDF access (FD-046) -
-exist so far.
+assignment, status controls (FD-039), the invoice frontend - editor,
+payment form, balance/status refresh, PDF access (FD-046), and the
+notification frontend - center, unread count, mark read, navigate to
+record (FD-050) - exist so far.
 
 ## Stack
 
@@ -42,6 +43,7 @@ frontend/
       department.ts           DepartmentPublic - same (FD-024)
       invoice.ts               InvoicePublic/InvoiceLineItemPublic/FinancialSummaryPublic - same (FD-046)
       payment.ts               PaymentPublic/PaymentRecordedData - same (FD-046)
+      notification.ts           NotificationPublic - same (FD-050)
     api/
       client.ts             apiFetch() - hybrid success/error envelope, ApiError;
                              apiFetchWithMeta() - same, plus the `meta` sibling a
@@ -54,6 +56,7 @@ frontend/
                                 updateInvoice/issueInvoice/cancelInvoice/getFinancialSummary/
                                 invoicePdfUrl (FD-046)
       payments.ts              listPayments/recordPayment (FD-046)
+      notifications.ts          listNotifications/markNotificationRead/markAllNotificationsRead (FD-050)
     contexts/
       AuthContext.tsx        AuthProvider + useAuth() - current user, session status, CSRF token
       OrganizationContext.tsx  OrganizationProvider + useOrganization() - the caller's
@@ -78,6 +81,8 @@ frontend/
         schemas.ts               Zod schemas for the invoice editor and payment forms (FD-046)
         calculations.ts          previewInvoiceTotals/formatMoney/sumMoney - explicitly
                                   non-authoritative display-only arithmetic (FD-046)
+      notifications/
+        constants.ts             entityDetailPath - entity_type -> frontend route mapping (FD-050)
     routes/
       router.tsx           route table: /login, /register, protected "/", "/organizations/new",
                             "/employees", "/employees/:membershipId", "/departments" (FD-024)
@@ -93,6 +98,7 @@ frontend/
       InvoiceListPage.tsx            search/filter/paginate invoices + financial summary (FD-046)
       InvoiceFormPage.tsx             create/edit an invoice, incl. the line-item editor (FD-046)
       InvoiceDetailPage.tsx           view/issue/cancel + payment ledger/form + PDF link (FD-046)
+      NotificationsPage.tsx           list/filter unread/mark one/all read/navigate to record (FD-050)
     components/
       OrganizationSwitcher.tsx  dropdown of the caller's active memberships (FD-018)
       ui/
@@ -543,6 +549,60 @@ full WeasyPrint pipeline, not just a 200 response); created a second
 draft invoice with no line items, added one via `Edit`, and confirmed
 the editor correctly pre-populated the existing customer selection and
 line item from the new `line-items` endpoint before saving the change.
+
+## Notification frontend - center, unread count, mark read, navigate to record (FD-050)
+
+- **No real top bar/sidebar shell exists yet** (spec Section 12.2's
+  "search, notifications, current organization switcher, user profile,
+  theme selector" top bar is FD-053's job) - follows the exact
+  precedent every prior module already established: a conditional
+  `<Link>` added to `HomePage`'s own `nav`, not a new shell component.
+  Unlike every other nav entry, it's shown unconditionally (no role
+  check) - the backend has no `Permission` for this entity at all
+  (`docs/API.md`'s Notifications section), so there's no UI-only hint
+  to mirror.
+- **The unread count badge** (`HomePage`'s "Notifications (N)" link,
+  and `NotificationsPage`'s own "Mark all read (N)" button) both read
+  `meta.total` from a minimal `listNotifications(..., { unreadOnly: true,
+  page: 1, perPage: 1 })` call - `per_page: 1` since only the
+  pagination total is ever read, not the single row it returns. Both
+  use the identical TanStack Query key (`["notifications-unread-count",
+  organizationId]`), so the two pages share one cache entry rather than
+  fetching the same count twice.
+- **No polling** - matches this frontend's existing convention
+  (`refetchOnWindowFocus: false` globally, nothing else here polls
+  either). The badge refreshes on navigation/remount and whenever
+  `NotificationsPage`'s own mark-read/mark-all-read actions invalidate
+  it, not continuously in the background.
+- **`NotificationsPage`** (`/notifications`) - paginated list, an
+  "unread only" filter toggle, per-row "Mark read", and "Mark all
+  read". A notification's title is a `<Link>` to its related record
+  (FR-039) via `features/notifications/constants.ts`'s
+  `entityDetailPath` - a plain lookup table from `entity_type` to a
+  frontend route prefix (`task` -> `/tasks`, `customer_request` ->
+  `/requests`, `invoice` -> `/invoices`, the only three FD-049 ever
+  emits), falling back to plain unlinked text for any future
+  `entity_type` this page doesn't recognize rather than guessing a
+  route that might not exist.
+- **Mark-read endpoints are `PATCH`** (`docs/API.md`'s Notifications
+  section) - `markNotificationRead`/`markAllNotificationsRead` mirror
+  `issueInvoice`/`cancelInvoice`'s exact shape (thin function, no
+  request body, `csrfToken` last).
+
+**Verified against the real backend in a real browser** (`FLASK_ENV=testing`
+on the backend - this dev environment has no Redis for
+`FLASK_ENV=development`'s session store, see `backend/README.md`):
+registered, created an organization, confirmed the notifications page
+showed its empty state with "Mark all read" correctly disabled;
+inserted a notification directly via the backend's own service layer
+(FD-049 has no trigger reachable from a single-member organization)
+and confirmed it appeared on both the list page and as a "(1)" badge
+on `HomePage`'s nav link; clicked "Mark read" and confirmed the
+unread marker disappeared, "Mark all read" became disabled, and the
+`HomePage` badge cleared on return; toggled "Show unread only" and
+confirmed the now-read notification correctly dropped out of the
+filtered view. Every request in this flow (list, unread-count, mark-read)
+returned `200`.
 
 ## Setup
 

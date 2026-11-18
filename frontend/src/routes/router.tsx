@@ -12,6 +12,7 @@ import { InvoiceFormPage } from "@/pages/InvoiceFormPage";
 import { InvoiceListPage } from "@/pages/InvoiceListPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { MyTasksPage } from "@/pages/MyTasksPage";
+import { NotificationsPage } from "@/pages/NotificationsPage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import { RequestDetailPage } from "@/pages/RequestDetailPage";
 import { RequestListPage } from "@/pages/RequestListPage";
@@ -45,6 +46,7 @@ export const router = createBrowserRouter([
       { path: "/invoices/new", element: <InvoiceFormPage /> },
       { path: "/invoices/:invoiceId", element: <InvoiceDetailPage /> },
       { path: "/invoices/:invoiceId/edit", element: <InvoiceFormPage /> },
+      { path: "/notifications", element: <NotificationsPage /> },
     ],
   },
 ]);
