@@ -147,6 +147,26 @@ refuses to start without `SMTP_HOST` set (`app/__init__.py`). A failed
 send never rolls back the invitation row - see `docs/API.md`'s
 Invitations section.
 
+## AI reporting service (FD-055)
+
+`app/ai/` - design only, no HTTP endpoint yet (FD-057/058/059 build
+the real pipeline on top of this). `providers.py` defines the
+swappable `AIProvider` abstraction plus the one real implementation,
+`AnthropicProvider` (plain stdlib `urllib`, not the vendor SDK - same
+reasoning as the SMTP-over-vendor-SDK choice above) and its own
+timeout/retry rules (`complete_with_retries`); `schemas.py` defines
+the weekly-report input/output contract (`WeeklyReportInput`/
+`WeeklyReportOutput`); `service.py`'s `generate_weekly_report` ties
+them together. Resolves Section 35 open decision #12: Anthropic
+Claude API, no hard budget cap beyond a bounded `AI_MAX_TOKENS` +
+`AI_REQUEST_TIMEOUT_SECONDS`, and the provider only ever sees an
+already-computed metrics snapshot - never a DB session or another
+organization's data. See `docs/API.md`'s own AI Reporting Service
+section for the full design rationale. Env vars (`.env.example`):
+`ANTHROPIC_API_KEY` (empty until something actually calls this),
+`ANTHROPIC_MODEL`, `AI_REQUEST_TIMEOUT_SECONDS`, `AI_MAX_RETRIES`,
+`AI_MAX_TOKENS`.
+
 ## Error handling note (found during FD-010)
 
 `@app.errorhandler` only covers Flask's view-dispatch phase. An

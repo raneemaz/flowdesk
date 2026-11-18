@@ -194,7 +194,17 @@ has four sections — summary, revenue by day, invoice distribution,
 recent payments — mirroring the JSON response's own shape; backend
 only, same precedent as FD-045/FD-046's PDF-generation/PDF-access
 split, so there's no frontend download button yet) is Done, completing
-Epic E07 (Analytics, Activity History and Notifications).
+Epic E07 (Analytics, Activity History and Notifications). FD-055
+(design the AI reporting service — `backend/app/ai/`: a swappable
+`AIProvider` abstraction, one real implementation (`AnthropicProvider`,
+plain stdlib `urllib`, no vendor SDK), its own timeout/retry rules,
+and the FR-040/FR-042 weekly-report input/output contract; resolves
+Section 35 open decision #12 — Anthropic Claude API, no hard budget
+cap beyond a bounded token limit + request timeout, and the provider
+only ever receives an already-computed metrics snapshot, never a DB
+session or another organization's data; design only, no HTTP endpoint
+— FD-056 through FD-060 build the real pipeline on top of this) is
+Done, starting Epic E08 (AI Business Assistant).
 
 ## Local development infrastructure
 

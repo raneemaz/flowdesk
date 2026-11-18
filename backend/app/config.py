@@ -74,6 +74,22 @@ class Config:
         self.FRONTEND_URL = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
         self.INVITATION_EXPIRY_DAYS = int(os.environ.get("INVITATION_EXPIRY_DAYS", "7"))
 
+        # AI reporting service (FD-055), per Section 35 open decision
+        # #12: Anthropic Claude API, no hard per-report budget cap
+        # beyond a bounded AI_MAX_TOKENS + AI_REQUEST_TIMEOUT_SECONDS
+        # (app.ai.providers.complete_with_retries). ANTHROPIC_MODEL
+        # defaults to a cost-effective model since this will eventually
+        # run on a recurring per-organization schedule (FD-059) -
+        # override for a higher-quality model if desired. Nothing in the
+        # running application calls app.ai.providers yet (FD-056/057
+        # do), so - unlike SMTP_HOST below - there is deliberately no
+        # startup requirement for ANTHROPIC_API_KEY in production.
+        self.ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+        self.ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-5-5")
+        self.AI_REQUEST_TIMEOUT_SECONDS = float(os.environ.get("AI_REQUEST_TIMEOUT_SECONDS", "30"))
+        self.AI_MAX_RETRIES = int(os.environ.get("AI_MAX_RETRIES", "2"))
+        self.AI_MAX_TOKENS = int(os.environ.get("AI_MAX_TOKENS", "1024"))
+
 
 class DevelopmentConfig(Config):
     def __init__(self):

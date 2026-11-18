@@ -1367,6 +1367,59 @@ business logic is duplicated between the two.
   FD-053 sidebar entry with no FR actually asking for it; `AnalyticsPage`
   has no export button.
 
+## AI Reporting Service (FD-055)
+
+**Design only - no HTTP endpoint yet.** Centralized in
+`backend/app/ai/`: `providers.py` (the swappable `AIProvider`
+abstraction + the one real implementation, `AnthropicProvider`),
+`schemas.py` (`WeeklyReportInput`/`WeeklyReportOutput`, FR-040/
+FR-042's contract), `service.py` (`generate_weekly_report`, which
+ties the two together). FD-056 (weekly metrics aggregation), FD-057
+(actual weekly summary generation), FD-058 (persistence), FD-059
+(scheduling), and FD-060 (frontend) build on this - none of them
+exist yet, so there is nothing to call this from in a real request
+yet.
+
+This resolves spec Section 35 open decision #12 ("AI provider,
+budget limits, privacy terms, and model selection"): **Anthropic's
+Messages API** via plain stdlib `urllib` (no vendor SDK - same
+reasoning `app/email/client.py` already used for choosing SMTP over a
+vendor SDK), model configurable via `ANTHROPIC_MODEL` (default
+`claude-haiku-5-5`, a cost-effective choice since this will
+eventually run on a recurring per-organization schedule); **no hard
+per-report budget cap**, only a bounded `AI_MAX_TOKENS` + a request
+timeout (`AI_REQUEST_TIMEOUT_SECONDS`); and the AI provider **only
+ever receives `WeeklyReportInput.metrics_snapshot`** - an
+already-computed dict from the deterministic Analytics Service
+(FD-051), never a database session, ORM object, or another
+organization's data. This directly satisfies Epic E08's own
+acceptance criterion ("AI never queries the database directly and
+never receives another organization's data").
+
+**Timeout/retry rules** (`complete_with_retries`): retries only
+transient failures - request timeout, rate limit (429), the
+provider's own 5xx/unreachable, or a 2xx reply this module couldn't
+parse - with exponential backoff, up to `AI_MAX_RETRIES` (default 2).
+It never retries an authentication failure (401/403) or a request
+this codebase itself sent maliciously/malformed (400/422), since
+retrying either can't succeed.
+
+**Output validation** (`generate_weekly_report`): the provider's raw
+text is parsed as JSON and validated against `WeeklyReportOutput` by
+pydantic; any parse/validation failure raises
+`AIReportGenerationError` rather than guessing or returning a partial
+result - satisfying the Epic's "a failed generation never produces a
+misleading 'successful' report." `period_start`/`period_end`/`model`
+on the output always come from the trusted input/response metadata,
+never from the AI's own response text, so a misbehaving provider
+can't claim a period or model it didn't actually use.
+
+Env vars (`.env.example`): `ANTHROPIC_API_KEY` (empty = nothing can
+call `AnthropicProvider` yet - no production-startup requirement,
+unlike `SMTP_HOST`, since nothing is wired to call it yet),
+`ANTHROPIC_MODEL`, `AI_REQUEST_TIMEOUT_SECONDS`, `AI_MAX_RETRIES`,
+`AI_MAX_TOKENS`.
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
