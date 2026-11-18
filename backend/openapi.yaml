@@ -3173,6 +3173,182 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/notifications:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Notifications]
+      summary: List the caller's own notifications
+      description: >
+        No permission gates this endpoint - there is no notification
+        row in the baseline permission matrix. Only confirms the
+        caller is an active member of organization_id, then
+        unconditionally scopes the result to the caller's own
+        membership as recipient; nobody, not even Owner/Manager, can
+        see another member's notifications. Newest first.
+        unread_only=true plus meta.total gives the caller's unread
+        count without a separate endpoint. FD-048 is infrastructure
+        only - nothing yet creates a Notification row.
+      operationId: getOrganizationNotifications
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: unread_only
+          in: query
+          schema: { type: boolean, default: false }
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: A page of the caller's own notifications
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NotificationPublic"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown query param or out-of-range page/per_page)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/notifications/{notification_id}/read:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: notification_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Notifications]
+      summary: Mark one of the caller's own notifications read
+      description: >
+        Idempotent - marking an already-read notification read again
+        changes nothing. 404 if the notification doesn't exist or
+        belongs to a different recipient - the two cases are
+        indistinguishable to the caller.
+      operationId: patchOrganizationNotificationRead
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Notification marked read (or already was)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/NotificationPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or the notification doesn't exist or belongs to a different recipient
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/notifications/read-all:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Notifications]
+      summary: Mark every one of the caller's own unread notifications read
+      description: >
+        A single bulk update scoped to the caller's own recipient_membership_id,
+        not a loop over rows. Idempotent - returns updated_count 0 if
+        nothing was unread.
+      operationId: patchOrganizationNotificationsReadAll
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Every one of the caller's own unread notifications is now read
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [updated_count]
+                        properties:
+                          updated_count:
+                            type: integer
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing/invalid CSRF token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /health:
     get:
       tags: [Health]
@@ -4252,6 +4428,38 @@ components:
           format: uuid
         metadata:
           type: object
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    NotificationPublic:
+      type: object
+      required: [id, organization_id, recipient_membership_id, type, title, body, entity_type, entity_id, read_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        recipient_membership_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        entity_type:
+          type: string
+        entity_id:
+          type: string
+          format: uuid
+        read_at:
+          type: string
+          format: date-time
           nullable: true
         created_at:
           type: string

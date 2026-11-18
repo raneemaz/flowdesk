@@ -1200,6 +1200,47 @@ first.
   permissions change might grant `limited` to, rather than falling
   through to an unfiltered result.
 
+## Notifications (FD-048)
+
+Centralized in `backend/app/notifications/`. **This task is
+infrastructure only** - there is no code path yet that creates a
+`Notification` row (FR-038's trigger list is FD-049's job); these
+three endpoints are the model's read/mark-read side (FR-039).
+
+**No `Permission` gates any of these endpoints** - unlike every other
+organization-scoped resource in this API, Section 7.2's baseline
+matrix has no notification row. Each endpoint instead only confirms
+the caller is an active member of `organization_id` (`404` for
+missing/inactive/cross-tenant membership, same convention as
+everywhere else) and then unconditionally scopes the result to that
+membership's own id - nobody, not even Owner/Manager, can see or
+mark-read another member's notifications.
+
+**`GET /organizations/{organization_id}/notifications`** - list,
+paginated, newest first. Query params: `page`/`per_page` (standard
+convention) and `unread_only` (optional, default `false`) - a caller
+gets their own unread count by reading `meta.total` on a request with
+`unread_only=true`, rather than this task adding a separate dedicated
+count endpoint. Response `data` is a list of
+`{"id", "organization_id", "recipient_membership_id", "type", "title",
+"body", "entity_type", "entity_id", "read_at", "created_at"}` objects.
+
+**`PATCH /organizations/{organization_id}/notifications/{notification_id}/read`**
+- mark one notification read. Idempotent (marking an already-read
+notification read again changes nothing). `404` if the notification
+doesn't exist *or* belongs to a different recipient - both cases are
+indistinguishable to the caller, same "never confirm existence of
+something you have no reach over" convention used everywhere else in
+this API.
+
+**`PATCH /organizations/{organization_id}/notifications/read-all`** -
+mark every one of the caller's own unread notifications read in a
+single bulk update. Response `data` is `{"updated_count": N}` (`0` if
+nothing was unread). Both PATCH endpoints use `PATCH`, not the spec
+outline's own literal `POST` - a deliberate judgment call for
+consistency with every other idempotent state-change endpoint in this
+API (Tasks' assign/status, Invoices' issue/cancel).
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -1255,6 +1296,9 @@ first.
 | GET | `/api/v1/organizations/{organization_id}/invoices/financial-summary` | Invoiced/collected/outstanding, overdue count, monthly revenue, recent payments | FD-044 |
 | GET | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}/pdf` | Invoice as a PDF (logo, items, totals, payment status) | FD-045 |
 | GET | `/api/v1/organizations/{organization_id}/activity` | Search/paginate the org's centralized activity log (role/scope-filtered) | FD-047 |
+| GET | `/api/v1/organizations/{organization_id}/notifications` | List the caller's own notifications, paginated, optionally unread-only | FD-048 |
+| PATCH | `/api/v1/organizations/{organization_id}/notifications/{notification_id}/read` | Mark one of the caller's own notifications read | FD-048 |
+| PATCH | `/api/v1/organizations/{organization_id}/notifications/read-all` | Mark every one of the caller's own unread notifications read | FD-048 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |

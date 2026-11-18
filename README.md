@@ -138,7 +138,12 @@ role/scope-filtered `GET .../activity` read endpoint; one named event,
 "role-changed", is a documented gap since no "change a member's role"
 feature exists yet to log; see `docs/DATABASE.md`'s `activity_logs`
 section and `docs/API.md`'s Activity log section) is Done, the first
-task of Epic E07.
+task of Epic E07. FD-048 (notification infrastructure — `Notification`
+model, recipient-scoped with no RBAC permission at all since the spec
+defines none for this entity, read/mark-one/mark-all-read endpoints;
+infrastructure only, nothing creates a notification yet — that's
+FD-049's job; see `docs/DATABASE.md`'s `notifications` section and
+`docs/API.md`'s Notifications section) is Done.
 
 ## Local development infrastructure
 

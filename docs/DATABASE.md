@@ -770,6 +770,19 @@ tables use the standard `TimestampMixin`, since a line item or a
 recorded payment, unlike a history entry, isn't itself an audit-trail
 row describing a change to something else.
 
+**FD-044's financial summary** (`GET .../invoices/financial-summary`,
+`app.invoices.service.get_financial_summary`) is a pure read-time
+aggregation over these two tables - no new column or table of its
+own. It leans directly on the status reasoning above: every `Payment`
+row's invoice is, by construction, in one of the statuses a payment
+can ever be recorded against (`sent`/`partially_paid`/`overdue`) or
+the one a full payment advances it to (`paid`) - all four are
+"ever billed" statuses - so `outstanding_balance` can be computed as
+a plain `total_invoiced - total_collected` subtraction of two
+independently-summed totals, exactly, rather than needing to sum each
+invoice's own `(total - amount_paid)` individually. See
+`docs/API.md`'s Financial reports section for the full field list.
+
 ### `activity_logs` (FD-047)
 
 Fields per spec Section 10.1's ActivityLog entity and FR-036/FR-037 -
@@ -826,15 +839,57 @@ log (`CASCADE`). Deleting the actor's `Membership` only clears
 `actor_membership_id` (`SET NULL`) - a log entry is organization
 history and survives its actor's membership.
 
-**FD-044's financial summary** (`GET .../invoices/financial-summary`,
-`app.invoices.service.get_financial_summary`) is a pure read-time
-aggregation over these two tables - no new column or table of its
-own. It leans directly on the status reasoning above: every `Payment`
-row's invoice is, by construction, in one of the statuses a payment
-can ever be recorded against (`sent`/`partially_paid`/`overdue`) or
-the one a full payment advances it to (`paid`) - all four are
-"ever billed" statuses - so `outstanding_balance` can be computed as
-a plain `total_invoiced - total_collected` subtraction of two
-independently-summed totals, exactly, rather than needing to sum each
-invoice's own `(total - amount_paid)` individually. See
-`docs/API.md`'s Financial reports section for the full field list.
+### `notifications` (FD-048)
+
+Fields per spec Section 10.1's Notification entity and FR-038/FR-039.
+**This task is infrastructure only** - the model, migration, and
+read/mark-read endpoints exist, but nothing in this task ever calls
+`app.notifications.service.create_notification()`; FR-038's own
+trigger list (task assigned, deadline approaching/overdue, comment
+added, request assigned/status changed, invoice paid, invitation
+received) is FD-049's job to wire in.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `organization_id` | UUID | required, FK -> `organizations.id`, `ON DELETE CASCADE`, indexed |
+| `recipient_membership_id` | UUID | required - renamed from the spec's own `recipient_id` (every actor/recipient reference in this codebase is to a `Membership`, never directly to a `User`) - **composite** FK -> `(memberships.id, memberships.organization_id)`, `ON DELETE CASCADE`, identical technique to `employee_profiles.membership_id` (FD-020): DB-enforces this can never diverge from its own `organization_id`, and a notification has no life independent of the membership it was sent to (unlike `tasks.creator_membership_id`'s `RESTRICT`) |
+| `type` | varchar(100), indexed | plain string, not a closed enum - same "no implied fixed set" reasoning as `activity_logs.action`; FD-049 defines the actual value set |
+| `title` | varchar(255) | required |
+| `body` | text | required |
+| `entity_type` | varchar(50), indexed | plain string, same polymorphic-reference category as `activity_logs.entity_type` |
+| `entity_id` | UUID, indexed | **no foreign key** - same reasoning as `activity_logs.entity_id` |
+| `read_at` | timestamptz, nullable, indexed | unread = `NULL` - same "nullable timestamp as a state flag" idiom as `invitations.accepted_at`/`cancelled_at`, rather than a separate boolean that could drift out of sync |
+| `created_at`, `updated_at` | timestamptz | standard `TimestampMixin`, **not** the append-only treatment `activity_logs`/`task_histories` use - marking a notification read is a real update to the row, not a new historical fact. `updated_at` exists as a column but, like `invitations`, isn't surfaced in `to_public_dict()` since the spec's own field list for this entity doesn't include it |
+
+**No `Permission` exists for this entity** - checked against spec
+Section 7.2's own baseline matrix, which has no notification row at
+all (every other organization-scoped resource in this codebase has
+one). Access is ownership-based instead:
+`GET/PATCH /organizations/{id}/notifications...` only confirm the
+caller is an active member of the organization
+(`get_active_membership_or_404`, the same 404-fails-closed check
+`require_permission` itself uses internally) and then unconditionally
+scope every query to that membership's own `id` as
+`recipient_membership_id` - nobody, not even Owner/Manager, has reach
+over another member's notifications; there is no admin override. A
+notification that exists but belongs to a different recipient is
+`404`, same "never confirm existence of something the caller has zero
+reach over" convention as every cross-tenant case elsewhere.
+
+**Mark-read endpoints use `PATCH`**, not the spec's own outline's
+literal `POST` (Section 11.1) - a judgment call for consistency with
+every other "change the state of an existing resource, idempotently"
+endpoint in this codebase (tasks' assign/status, invoices' issue/
+cancel). `PATCH .../notifications/{id}/read` and
+`PATCH .../notifications/read-all` are both idempotent (marking an
+already-read notification read again, or running read-all with
+nothing unread, is a no-op) - `read-all` is a single bulk `UPDATE`
+(not a Python loop), same convention `invoices`' overdue refresh
+(FD-042) already established.
+
+**Cascade behavior:** deleting an `Organization` deletes its
+notifications (`CASCADE`). Deleting the recipient's `Membership` also
+deletes its notifications (`CASCADE`, via the composite FK) - unlike
+`activity_logs.actor_membership_id`'s `SET NULL`, a notification
+cannot meaningfully survive the membership it was sent to.
