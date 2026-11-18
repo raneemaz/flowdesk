@@ -1243,6 +1243,97 @@ outline's own literal `POST` - a deliberate judgment call for
 consistency with every other idempotent state-change endpoint in this
 API (Tasks' assign/status, Invoices' issue/cancel).
 
+## Analytics (FD-051/FD-052)
+
+Centralized in `backend/app/analytics/`. FD-051 built the service
+layer (`app/analytics/service.py`) as four deterministic, org-scoped
+functions requiring already-resolved `period_start`/`period_end`
+dates; FD-052 adds the four HTTP endpoints below plus the FR-034
+date-filter taxonomy that resolves a named window into those dates
+(`resolve_period_filter`). All four are gated by
+**`require_permission(Permission.ANALYTICS_VIEW)`**; which scope each
+caller gets is Section 7.2's baseline matrix (Owner/Manager `full`,
+Employee `own`, Accountant `limited`, CustomerSupport `limited`), but
+each endpoint below additionally restricts *which* scopes it actually
+honors, per FR-030 through FR-033, not per `ANALYTICS_VIEW`'s own
+scope comments - see `app/analytics/service.py`'s module docstring for
+why the four categories are drawn this way, and for the deliberate,
+documented gap that CustomerSupport's own `limited` grant (a
+customer/request analytics subset) has no matching endpoint: no FR
+asks for one, and FD-037's own `GET .../customer-requests` with its
+filters already serves that role's real-time dashboard.
+
+**Query params, shared by all four endpoints:**
+- **`period`** (required) - one of `last_7_days`, `last_30_days`,
+  `last_90_days`, `current_month`, `previous_month`, `custom`. The
+  named windows are resolved in the organization's own timezone:
+  `last_N_days` is inclusive of today (`today - (N-1)` through
+  `today`); `current_month`/`previous_month` are the *full* calendar
+  month (1st through last day), the same convention
+  `app.invoices.service._current_month_bounds` (FD-044) already
+  established for its own default - never bounded to "today" partway
+  through the month.
+- **`period_start`/`period_end`** - **required together, and only**
+  when `period=custom` (`422` otherwise, either for `custom` missing
+  either bound, or for a named `period` value given either bound at
+  all - a caller never has an explicit range silently ignored in
+  favor of a named one). Must not be inverted.
+
+**`GET /organizations/{organization_id}/analytics/overview`** (FR-030)
+- **`full` scope only** (Owner/Manager; `403` for every other role).
+Response `data`: `employee_count`/`active_tasks`/`overdue_tasks`/
+`open_requests` (current-state snapshots, not period-scoped) plus
+`completed_tasks`/`monthly_invoiced`/`monthly_collected` (scoped to
+the resolved period) and the resolved `period_start`/`period_end`
+themselves.
+
+**`GET /organizations/{organization_id}/analytics/employees`** (FR-031)
+- **`full`** (Owner/Manager) may add `target_membership_id` to scope
+to one employee, or omit it for every active employee in the org; a
+`target_membership_id` that doesn't resolve to an active membership
+*in this organization* is `404` (checked by the route itself before
+calling the service, which would otherwise just return an empty
+list - no existence oracle for a cross-tenant id either way). **`own`**
+(Employee) is always silently forced to the caller's own membership,
+regardless of any `target_membership_id` given - never a `403`, same
+convention `GET .../tasks`' own `assigned` scope already established.
+Any other scope (Accountant/CustomerSupport's `limited`) is `403`.
+Response `data` is a list of `{"membership_id", "name",
+"assigned_tasks", "completed_tasks", "overdue_tasks",
+"completion_rate", "avg_completion_time_hours"}` - the rate/average
+are `null`, never `0`, when no task was assigned/completed in the
+period (no signal to report, not a fabricated zero).
+
+**`GET /organizations/{organization_id}/analytics/departments`** (FR-032)
+- **`full` scope only**. Optional `department_id` scopes to one
+department, `404` if it doesn't belong to this organization (same
+route-level check as above). Response `data` is a list of
+`{"department_id", "department_name", "active_tasks",
+"completed_tasks", "overdue_tasks", "request_volume"}` - one entry per
+department (or just the one given), plus a trailing
+`department_id: null` entry for genuinely department-less tasks when
+no `department_id` filter was given. `request_volume` is derived via
+each request's *assignee's own* department (`CustomerRequest` has no
+department column of its own) and has no "unassigned" bucket of its
+own - a request with no assignee, or an assignee with no employee
+profile yet, isn't counted anywhere.
+
+**`GET /organizations/{organization_id}/analytics/finance`** (FR-033)
+- **`full`, or `limited` when the caller's role is Accountant**
+specifically (`403` for CustomerSupport's own `limited`, and for
+Employee's `own`) - the same scope-plus-role disambiguation the
+Activity log's own `limited` value already needed. Response `data` is
+`app.invoices.service.get_financial_summary`'s own fields
+(`total_invoiced`/`total_collected`/`outstanding_balance`/
+`overdue_invoice_count`/`monthly_revenue_collected`/`recent_payments`,
+all-time vs. period-scoped exactly as documented in the Financial
+reports section above) merged with two period-scoped fields:
+`revenue_by_day` (`[{"date", "amount"}, ...]`, one entry per day that
+actually had a payment - never zero-filled) and
+`invoice_distribution` (`{"draft": N, "sent": N, ...}`, a count of
+this organization's invoices grouped by status, issued within the
+period).
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -1301,6 +1392,10 @@ API (Tasks' assign/status, Invoices' issue/cancel).
 | GET | `/api/v1/organizations/{organization_id}/notifications` | List the caller's own notifications, paginated, optionally unread-only | FD-048 |
 | PATCH | `/api/v1/organizations/{organization_id}/notifications/{notification_id}/read` | Mark one of the caller's own notifications read | FD-048 |
 | PATCH | `/api/v1/organizations/{organization_id}/notifications/read-all` | Mark every one of the caller's own unread notifications read | FD-048 |
+| GET | `/api/v1/organizations/{organization_id}/analytics/overview` | Org-wide overview metrics for a resolved period (full scope only) | FD-052 |
+| GET | `/api/v1/organizations/{organization_id}/analytics/employees` | Per-employee performance for a resolved period (full/own scope) | FD-052 |
+| GET | `/api/v1/organizations/{organization_id}/analytics/departments` | Per-department breakdown for a resolved period (full scope only) | FD-052 |
+| GET | `/api/v1/organizations/{organization_id}/analytics/finance` | Financial analytics for a resolved period (full/Accountant-limited) | FD-052 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |

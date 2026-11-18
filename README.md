@@ -163,7 +163,16 @@ than recomputing money figures; no fabricated "trend" field — a caller
 wanting one calls this twice and compares two real results; department
 request-volume is derived via each request's assignee's own
 department, since `CustomerRequest` has no department column of its
-own) is Done.
+own) is Done. FD-052 (analytics API — four `GET
+.../analytics/{overview,employees,departments,finance}` endpoints over
+FD-051's service functions, each gated by `ANALYTICS_VIEW` with the
+scope restrictions FR-030 through FR-033 actually specify; adds the
+FR-034 named date-filter taxonomy — last 7/30/90 days, current/previous
+calendar month, custom range — resolved into the explicit
+`period_start`/`period_end` dates the service layer requires; routes do
+their own 404 existence/ownership check for a cross-organization
+`target_membership_id`/`department_id` before calling into the
+service, per FD-051's own documented warning) is Done.
 
 ## Local development infrastructure
 

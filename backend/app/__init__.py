@@ -4,6 +4,7 @@ import os
 from flask import Flask
 
 from app.activity.routes import activity_bp
+from app.analytics.routes import analytics_bp
 from app.auth.routes import auth_bp
 from app.config import API_PREFIX, CONFIG_BY_NAME
 from app.customer_requests.routes import customer_requests_bp
@@ -65,6 +66,7 @@ def register_blueprints(app):
     app.register_blueprint(invoices_bp, url_prefix=API_PREFIX)
     app.register_blueprint(payments_bp, url_prefix=API_PREFIX)
     app.register_blueprint(activity_bp, url_prefix=API_PREFIX)
+    app.register_blueprint(analytics_bp, url_prefix=API_PREFIX)
     app.register_blueprint(notifications_bp, url_prefix=API_PREFIX)
     app.register_blueprint(health_bp, url_prefix=API_PREFIX)
     app.register_blueprint(docs_bp, url_prefix=API_PREFIX)

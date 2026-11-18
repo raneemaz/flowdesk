@@ -1,12 +1,13 @@
 """FD-051: the analytics service - deterministic metrics, explicit
 periods, org-scoped (this task's own title names all three required
-properties). Service layer only: no routes/schemas here. FD-052
-("analytics API... date filters") is the separate future task that
-exposes these functions over HTTP and resolves the named date-filter
-taxonomy (last 7/30/90 days, current/previous month, custom range,
-FR-034) into the `period_start`/`period_end` dates every function here
-takes as **required, already-resolved** arguments - "explicit periods"
-means this module never infers or defaults a period itself, unlike
+properties). FD-052 ("analytics API... date filters") added the one
+function below that resolves FR-034's named date-filter taxonomy
+(`resolve_period_filter`) plus the routes/schemas that call into this
+module over HTTP (`app.analytics.routes`/`app.analytics.schemas`) -
+everything else here is still FD-051's own, unchanged. The four
+`get_*` functions below take `period_start`/`period_end` as
+**required, already-resolved** arguments - "explicit periods" means
+they never infer or default a period themselves, unlike
 `app.invoices.service.get_financial_summary` (FD-044), which predates
 this requirement and still defaults to the current calendar month when
 omitted. That leniency is left alone; every call into it from here
@@ -165,6 +166,77 @@ def _datetime_range(period_start: date, period_end: date) -> tuple[datetime, dat
 def _sum_decimal(query) -> Decimal:
     result = query.scalar()
     return result if result is not None else Decimal("0.00")
+
+
+def _month_bounds(year: int, month: int) -> tuple[date, date]:
+    """Duplicated from `app.invoices.service._current_month_bounds`'s
+    own first-day/last-day-of-month logic (FD-044), generalized to any
+    (year, month) so `resolve_period_filter` can reuse it for both
+    `current_month` and `previous_month` - same "duplicate, don't
+    cross-import" convention as every other private helper above."""
+    period_start = date(year, month, 1)
+    if month == 12:
+        next_month_start = date(year + 1, 1, 1)
+    else:
+        next_month_start = date(year, month + 1, 1)
+    period_end = next_month_start - timedelta(days=1)
+    return period_start, period_end
+
+
+def resolve_period_filter(
+    period: str,
+    organization_timezone: str,
+    *,
+    period_start: date | None = None,
+    period_end: date | None = None,
+    now: datetime | None = None,
+) -> tuple[date, date]:
+    """FD-052 (FR-034): resolves the named date-filter taxonomy into
+    the explicit `(period_start, period_end)` pair every function
+    above requires as an already-resolved argument - the module
+    docstring's own forward reference to this task. `last_7_days`/
+    `last_30_days`/`last_90_days` are inclusive of today (`today - 6`
+    through `today` for "last 7 days"). `current_month`/
+    `previous_month` reuse the exact first-day/last-day-of-month
+    convention `app.invoices.service._current_month_bounds` (FD-044)
+    already established - the full month, not bounded to today, via
+    `_month_bounds` above.
+
+    `custom` trusts `period_start`/`period_end` as already given and
+    validated (not inverted) - the route's own pydantic query schema
+    (`app.analytics.schemas._PeriodQuery`) is the one place that
+    enforces "both given, together, only for custom"; this is only a
+    defensive re-check in case some other, future caller reaches this
+    function without going through that schema first."""
+    today = _today_in_timezone(organization_timezone, now=now)
+
+    if period == "custom":
+        if period_start is None or period_end is None:
+            raise APIError(
+                "period_start and period_end are required when period is custom.",
+                status_code=422,
+                code="VALIDATION_ERROR",
+                details={"period": "period_start and period_end are required when period is custom"},
+            )
+        _validate_period(period_start, period_end)
+        return period_start, period_end
+
+    if period == "last_7_days":
+        return today - timedelta(days=6), today
+    if period == "last_30_days":
+        return today - timedelta(days=29), today
+    if period == "last_90_days":
+        return today - timedelta(days=89), today
+    if period == "current_month":
+        return _month_bounds(today.year, today.month)
+    if period == "previous_month":
+        if today.month == 1:
+            return _month_bounds(today.year - 1, 12)
+        return _month_bounds(today.year, today.month - 1)
+
+    raise APIError(
+        "Unknown period.", status_code=422, code="VALIDATION_ERROR", details={"period": "unrecognized period value"}
+    )
 
 
 def get_overview_metrics(

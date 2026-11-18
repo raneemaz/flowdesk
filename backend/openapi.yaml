@@ -3349,6 +3349,307 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/analytics/overview:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Analytics]
+      summary: Org-wide overview metrics for a resolved period (FR-030)
+      description: >
+        Requires ANALYTICS_VIEW, full scope only (Owner/Manager) - 403
+        for every other role/scope. period resolves FR-034's named
+        date-filter taxonomy into period_start/period_end.
+      operationId: getOrganizationAnalyticsOverview
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, enum: [last_7_days, last_30_days, last_90_days, current_month, previous_month, custom] }
+        - name: period_start
+          in: query
+          schema: { type: string, format: date }
+        - name: period_end
+          in: query
+          schema: { type: string, format: date }
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Overview analytics retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/OverviewAnalyticsPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without full ANALYTICS_VIEW scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown period, custom missing period_start/period_end, or bounds given for a named period)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/analytics/employees:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Analytics]
+      summary: Per-employee performance for a resolved period (FR-031)
+      description: >
+        Requires ANALYTICS_VIEW. full scope (Owner/Manager) may pass
+        target_membership_id to scope to one employee, or omit it for
+        every active employee in the org - 404 if target_membership_id
+        doesn't resolve to an active membership in this organization.
+        own scope (Employee) is always silently forced to the caller's
+        own membership regardless of target_membership_id. Any other
+        scope is 403.
+      operationId: getOrganizationAnalyticsEmployees
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, enum: [last_7_days, last_30_days, last_90_days, current_month, previous_month, custom] }
+        - name: period_start
+          in: query
+          schema: { type: string, format: date }
+        - name: period_end
+          in: query
+          schema: { type: string, format: date }
+        - name: target_membership_id
+          in: query
+          schema: { type: string, format: uuid }
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Employee performance analytics retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EmployeePerformancePublic"
+                  meta:
+                    type: object
+                    required: [period_start, period_end]
+                    properties:
+                      period_start:
+                        type: string
+                        format: date
+                      period_end:
+                        type: string
+                        format: date
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without full/own ANALYTICS_VIEW scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or target_membership_id doesn't resolve to an active membership in it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown period, custom missing period_start/period_end, or bounds given for a named period)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/analytics/departments:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Analytics]
+      summary: Per-department breakdown for a resolved period (FR-032)
+      description: >
+        Requires ANALYTICS_VIEW, full scope only. Optional
+        department_id scopes to one department - 404 if it doesn't
+        belong to this organization. One entry per department (or just
+        the one given), plus a trailing department_id: null entry for
+        genuinely department-less tasks when no department_id filter
+        was given.
+      operationId: getOrganizationAnalyticsDepartments
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, enum: [last_7_days, last_30_days, last_90_days, current_month, previous_month, custom] }
+        - name: period_start
+          in: query
+          schema: { type: string, format: date }
+        - name: period_end
+          in: query
+          schema: { type: string, format: date }
+        - name: department_id
+          in: query
+          schema: { type: string, format: uuid }
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Department analytics retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DepartmentAnalyticsPublic"
+                  meta:
+                    type: object
+                    required: [period_start, period_end]
+                    properties:
+                      period_start:
+                        type: string
+                        format: date
+                      period_end:
+                        type: string
+                        format: date
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without full ANALYTICS_VIEW scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization, or department_id doesn't belong to it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown period, custom missing period_start/period_end, or bounds given for a named period)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/analytics/finance:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Analytics]
+      summary: Financial analytics for a resolved period (FR-033)
+      description: >
+        Requires ANALYTICS_VIEW, full scope, or limited scope when the
+        caller's role is specifically Accountant - 403 for
+        CustomerSupport's own limited grant and for Employee's own.
+      operationId: getOrganizationAnalyticsFinance
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, enum: [last_7_days, last_30_days, last_90_days, current_month, previous_month, custom] }
+        - name: period_start
+          in: query
+          schema: { type: string, format: date }
+        - name: period_end
+          in: query
+          schema: { type: string, format: date }
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Financial analytics retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/FinancialAnalyticsPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated member without full or Accountant-limited ANALYTICS_VIEW scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (unknown period, custom missing period_start/period_end, or bounds given for a named period)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /health:
     get:
       tags: [Health]
@@ -4526,6 +4827,170 @@ components:
           description: The latest 10 payments across the organization, newest first.
           items:
             $ref: "#/components/schemas/PaymentPublic"
+
+    OverviewAnalyticsPublic:
+      type: object
+      description: >
+        FR-030. employee_count/active_tasks/overdue_tasks/open_requests
+        are current-state snapshots, not period-scoped;
+        completed_tasks/monthly_invoiced/monthly_collected are scoped
+        to period_start/period_end.
+      required:
+        [
+          period_start,
+          period_end,
+          employee_count,
+          active_tasks,
+          completed_tasks,
+          overdue_tasks,
+          open_requests,
+          monthly_invoiced,
+          monthly_collected,
+        ]
+      properties:
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        employee_count:
+          type: integer
+          minimum: 0
+        active_tasks:
+          type: integer
+          minimum: 0
+        completed_tasks:
+          type: integer
+          minimum: 0
+        overdue_tasks:
+          type: integer
+          minimum: 0
+        open_requests:
+          type: integer
+          minimum: 0
+        monthly_invoiced:
+          type: string
+        monthly_collected:
+          type: string
+
+    EmployeePerformancePublic:
+      type: object
+      description: >
+        FR-031. completion_rate/avg_completion_time_hours are null,
+        never 0, when no task was assigned/completed in the period.
+      required:
+        [membership_id, name, assigned_tasks, completed_tasks, overdue_tasks, completion_rate, avg_completion_time_hours]
+      properties:
+        membership_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        assigned_tasks:
+          type: integer
+          minimum: 0
+        completed_tasks:
+          type: integer
+          minimum: 0
+        overdue_tasks:
+          type: integer
+          minimum: 0
+        completion_rate:
+          type: number
+          nullable: true
+        avg_completion_time_hours:
+          type: number
+          nullable: true
+
+    DepartmentAnalyticsPublic:
+      type: object
+      description: >
+        FR-032. request_volume is derived via each request's
+        assignee's own department, so it has no "unassigned" bucket of
+        its own, unlike the tasks fields alongside it.
+      required: [department_id, department_name, active_tasks, completed_tasks, overdue_tasks, request_volume]
+      properties:
+        department_id:
+          type: string
+          format: uuid
+          nullable: true
+        department_name:
+          type: string
+          nullable: true
+        active_tasks:
+          type: integer
+          minimum: 0
+        completed_tasks:
+          type: integer
+          minimum: 0
+        overdue_tasks:
+          type: integer
+          minimum: 0
+        request_volume:
+          type: integer
+          minimum: 0
+
+    FinancialAnalyticsPublic:
+      type: object
+      description: >
+        FR-033. Merges FinancialSummaryPublic's own fields with two
+        genuinely period-scoped ones: revenue_by_day (never zero-filled
+        - one entry per day that actually had a payment) and
+        invoice_distribution (a count of this organization's invoices,
+        grouped by status, issued within the period).
+      required:
+        [
+          total_invoiced,
+          total_collected,
+          outstanding_balance,
+          overdue_invoice_count,
+          period_start,
+          period_end,
+          monthly_revenue_collected,
+          recent_payments,
+          revenue_by_day,
+          invoice_distribution,
+        ]
+      properties:
+        total_invoiced:
+          type: string
+        total_collected:
+          type: string
+        outstanding_balance:
+          type: string
+        overdue_invoice_count:
+          type: integer
+          minimum: 0
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        monthly_revenue_collected:
+          type: string
+        recent_payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentPublic"
+        revenue_by_day:
+          type: array
+          items:
+            type: object
+            required: [date, amount]
+            properties:
+              date:
+                type: string
+                format: date
+              amount:
+                type: string
+        invoice_distribution:
+          type: object
+          description: Maps an InvoiceStatus value to a count.
+          additionalProperties:
+            type: integer
+            minimum: 0
 
     LineItemInput:
       type: object
