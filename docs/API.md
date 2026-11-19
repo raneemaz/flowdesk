@@ -1367,18 +1367,37 @@ business logic is duplicated between the two.
   FD-053 sidebar entry with no FR actually asking for it; `AnalyticsPage`
   has no export button.
 
-## AI Reporting Service (FD-055)
+## AI Reporting Service (FD-055/FD-056)
 
 **Design only - no HTTP endpoint yet.** Centralized in
 `backend/app/ai/`: `providers.py` (the swappable `AIProvider`
 abstraction + the one real implementation, `AnthropicProvider`),
 `schemas.py` (`WeeklyReportInput`/`WeeklyReportOutput`, FR-040/
 FR-042's contract), `service.py` (`generate_weekly_report`, which
-ties the two together). FD-056 (weekly metrics aggregation), FD-057
-(actual weekly summary generation), FD-058 (persistence), FD-059
-(scheduling), and FD-060 (frontend) build on this - none of them
-exist yet, so there is nothing to call this from in a real request
-yet.
+ties the two together), `snapshot.py` (FD-056's
+`build_weekly_metrics_snapshot`, the one producer of a concrete
+`metrics_snapshot` shape). FD-057 (actual weekly summary generation),
+FD-058 (persistence), FD-059 (scheduling), and FD-060 (frontend) build
+on this - none of them exist yet, so there is nothing to call this
+from in a real request yet.
+
+**Weekly metrics aggregation** (`app/ai/snapshot.py`,
+`build_weekly_metrics_snapshot`): combines FD-051's four already-
+deterministic analytics functions (overview/employees/departments/
+finance) into one JSON-serializable dict for one organization and one
+already-resolved period - no new query, no new aggregation logic of
+its own. Always calls them with `PermissionScope.FULL` (there is no
+HTTP caller to scope to; a weekly summary is inherently org-wide, per
+FR-040). `finance.recent_payments` is trimmed to `payment_date`/
+`amount`/`method`/`reference` only - not `id`/`idempotency_key`/
+`recorded_by`/`notes`, the same minimization FD-054's CSV/PDF export
+already applied before sending payment data outside the system. Pure
+and side-effect-free (no database write) - calling it twice for the
+same organization+period over an unchanged database returns an
+identical result, which is this task's own "idempotent" (retrying it
+is always safe; the *persisted* idempotency a scheduled job needs -
+never writing a duplicate `AIReport` row - is FD-058's job, since this
+function writes nothing of its own to deduplicate).
 
 This resolves spec Section 35 open decision #12 ("AI provider,
 budget limits, privacy terms, and model selection"): **Anthropic's

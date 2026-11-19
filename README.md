@@ -204,7 +204,14 @@ cap beyond a bounded token limit + request timeout, and the provider
 only ever receives an already-computed metrics snapshot, never a DB
 session or another organization's data; design only, no HTTP endpoint
 — FD-056 through FD-060 build the real pipeline on top of this) is
-Done, starting Epic E08 (AI Business Assistant).
+Done, starting Epic E08 (AI Business Assistant). FD-056 (weekly
+metrics aggregation — `app/ai/snapshot.py`'s `build_weekly_metrics_snapshot`
+combines FD-051's four analytics functions into one JSON-serializable
+`metrics_snapshot` dict per organization/period, always at full scope
+since there's no HTTP caller to scope to; pure and side-effect-free,
+so retrying it is always safe — its own "idempotent"; trims
+`recent_payments` to the same externally-safe fields FD-054's export
+already chose) is Done.
 
 ## Local development infrastructure
 
