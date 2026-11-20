@@ -5,7 +5,9 @@ import pytest
 
 from app.ai.providers import AICompletionResponse, AIProvider, AIProviderTimeoutError
 from app.ai.schemas import WeeklyReportInput, WeeklyReportOutput
-from app.ai.service import AIReportGenerationError, generate_weekly_report
+from app.ai.service import AIReportGenerationError, generate_report_for_organization, generate_weekly_report
+from app.extensions import db
+from app.models import Membership, MembershipRole, MembershipStatus, Organization, User
 
 
 class _FakeProvider(AIProvider):
@@ -174,3 +176,106 @@ def test_weekly_report_input_rejects_an_unexpected_field():
 def test_weekly_report_input_requires_metrics_snapshot():
     with pytest.raises(Exception):
         WeeklyReportInput(organization_name="Acme", period_start=date(2026, 1, 1), period_end=date(2026, 1, 31))
+
+
+# ---------------------------------------------------------------------------
+# generate_report_for_organization (FD-057) - the real snapshot (FD-056)
+# aggregation runs for real against the test database; only the AI provider
+# itself is faked, so no network call ever happens.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _clean(app):
+    yield
+    with app.app_context():
+        db.session.query(Membership).delete()
+        db.session.query(Organization).delete()
+        db.session.query(User).delete()
+        db.session.commit()
+
+
+def _make_org_with_owner(slug):
+    org = Organization(name="Acme Inc", slug=slug, timezone="UTC")
+    db.session.add(org)
+    db.session.commit()
+    user = User(name="Owner", email=f"{slug}@example.com")
+    user.set_password("correct horse battery")
+    db.session.add(user)
+    db.session.commit()
+    db.session.add(
+        Membership(organization_id=org.id, user_id=user.id, role=MembershipRole.OWNER, status=MembershipStatus.ACTIVE)
+    )
+    db.session.commit()
+    return org
+
+
+def test_generate_report_for_organization_ties_the_real_snapshot_to_ai_generation(app):
+    with app.app_context():
+        org = _make_org_with_owner("org-057-happy")
+        provider = _FakeProvider(VALID_RESPONSE)
+
+        output = generate_report_for_organization(
+            org,
+            period_start=date(2026, 1, 1),
+            period_end=date(2026, 1, 31),
+            provider=provider,
+            max_tokens=256,
+            timeout_seconds=5,
+            max_retries=0,
+        )
+
+        assert output.period_start == date(2026, 1, 1)
+        assert output.period_end == date(2026, 1, 31)
+        assert output.model == "claude-haiku-5-5"
+        # Proves the prompt was built from the real snapshot (one active
+        # owner-membership counted), not a mock or placeholder.
+        assert provider.last_request is not None
+        assert '"employee_count": 1' in provider.last_request.user_prompt
+        assert "Acme Inc" in provider.last_request.user_prompt
+
+
+def test_generate_report_for_organization_builds_a_default_provider_when_none_given(app, monkeypatch):
+    with app.app_context():
+        org = _make_org_with_owner("org-057-default-provider")
+        fake = _FakeProvider(VALID_RESPONSE)
+        monkeypatch.setattr("app.ai.service.build_default_provider", lambda: fake)
+
+        output = generate_report_for_organization(
+            org, period_start=date(2026, 1, 1), period_end=date(2026, 1, 31), max_tokens=256, timeout_seconds=5, max_retries=0
+        )
+
+        assert output.model == "claude-haiku-5-5"
+        assert fake.last_request is not None
+
+
+def test_generate_report_for_organization_falls_back_to_config_defaults(app):
+    with app.app_context():
+        org = _make_org_with_owner("org-057-config-defaults")
+        provider = _FakeProvider(VALID_RESPONSE)
+
+        # max_tokens/timeout_seconds/max_retries all omitted - must read
+        # AI_MAX_TOKENS/AI_REQUEST_TIMEOUT_SECONDS/AI_MAX_RETRIES from
+        # current_app.config rather than raising or using some other
+        # hardcoded value.
+        output = generate_report_for_organization(
+            org, period_start=date(2026, 1, 1), period_end=date(2026, 1, 31), provider=provider
+        )
+
+        assert output.model == "claude-haiku-5-5"
+
+
+def test_generate_report_for_organization_propagates_a_provider_failure(app):
+    with app.app_context():
+        org = _make_org_with_owner("org-057-failure")
+
+        with pytest.raises(AIReportGenerationError):
+            generate_report_for_organization(
+                org,
+                period_start=date(2026, 1, 1),
+                period_end=date(2026, 1, 31),
+                provider=_AlwaysFailsProvider(),
+                max_tokens=256,
+                timeout_seconds=5,
+                max_retries=0,
+            )

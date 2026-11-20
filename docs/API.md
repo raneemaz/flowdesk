@@ -1367,19 +1367,34 @@ business logic is duplicated between the two.
   FD-053 sidebar entry with no FR actually asking for it; `AnalyticsPage`
   has no export button.
 
-## AI Reporting Service (FD-055/FD-056)
+## AI Reporting Service (FD-055/FD-056/FD-057)
 
-**Design only - no HTTP endpoint yet.** Centralized in
+**Design/service layer only - no HTTP endpoint yet.** Centralized in
 `backend/app/ai/`: `providers.py` (the swappable `AIProvider`
 abstraction + the one real implementation, `AnthropicProvider`),
 `schemas.py` (`WeeklyReportInput`/`WeeklyReportOutput`, FR-040/
 FR-042's contract), `service.py` (`generate_weekly_report`, which
-ties the two together), `snapshot.py` (FD-056's
-`build_weekly_metrics_snapshot`, the one producer of a concrete
-`metrics_snapshot` shape). FD-057 (actual weekly summary generation),
-FD-058 (persistence), FD-059 (scheduling), and FD-060 (frontend) build
-on this - none of them exist yet, so there is nothing to call this
-from in a real request yet.
+ties the two together, and FD-057's `generate_report_for_organization`,
+below), `snapshot.py` (FD-056's `build_weekly_metrics_snapshot`, the
+one producer of a concrete `metrics_snapshot` shape). FD-058
+(persistence), FD-059 (scheduling), and FD-060 (frontend) build on
+this - none of them exist yet, so there is nothing to call
+`generate_report_for_organization` from in a real request yet.
+
+**Weekly summary generation** (`app/ai/service.py`,
+`generate_report_for_organization`): the one function that actually
+ties an organization + period to a validated `WeeklyReportOutput` -
+builds that organization's own metrics snapshot (FD-056), wraps it in
+the FR-040/FR-042 input contract, and calls `generate_weekly_report`
+(FD-055). Takes an already-loaded `Organization` ORM instance, not an
+`organization_id` it would look up itself - issues no database query
+of its own (the only queries happen inside
+`build_weekly_metrics_snapshot`, unchanged). `provider`/`max_tokens`/
+`timeout_seconds`/`max_retries` default to `None`, resolved from
+`current_app.config` (`ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL`/
+`AI_MAX_TOKENS`/`AI_REQUEST_TIMEOUT_SECONDS`/`AI_MAX_RETRIES`) only
+when actually needed, so a test can supply a fake provider and
+explicit overrides without needing a real API key configured.
 
 **Weekly metrics aggregation** (`app/ai/snapshot.py`,
 `build_weekly_metrics_snapshot`): combines FD-051's four already-

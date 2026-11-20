@@ -211,7 +211,15 @@ combines FD-051's four analytics functions into one JSON-serializable
 since there's no HTTP caller to scope to; pure and side-effect-free,
 so retrying it is always safe — its own "idempotent"; trims
 `recent_payments` to the same externally-safe fields FD-054's export
-already chose) is Done.
+already chose) is Done. FD-057 (AI weekly summary generation —
+`app/ai/service.py`'s `generate_report_for_organization` ties FD-056's
+snapshot to FD-055's `generate_weekly_report`/`build_default_provider`
+for one real organization and period, resolving provider/token/
+timeout/retry defaults from config only when not given explicitly;
+takes an already-loaded `Organization` instance and issues no
+database query of its own; still unreachable from any HTTP route —
+FD-058/059 wire the real persisted/scheduled pipeline on top of this)
+is Done.
 
 ## Local development infrastructure
 
