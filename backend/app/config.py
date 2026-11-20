@@ -90,6 +90,22 @@ class Config:
         self.AI_MAX_RETRIES = int(os.environ.get("AI_MAX_RETRIES", "2"))
         self.AI_MAX_TOKENS = int(os.environ.get("AI_MAX_TOKENS", "1024"))
 
+        # Scheduled AI reports (FD-059), per Section 14 ("Weekly
+        # business/AI summary: once per week, per organization, in the
+        # org's own timezone") and Section 35 open decision #11,
+        # resolved at the user's direction: Monday 06:00 in each
+        # organization's own local time (app.ai_reports.tasks's own
+        # _TARGET_WEEKDAY/_TARGET_HOUR constants), covering the
+        # preceding Monday-Sunday week. These two URLs are only read by
+        # app/celery_app.py's own create_app() call (a separate
+        # process - `celery -A app.celery_app.celery_app worker`/`beat`
+        # - never the Flask dev server/wsgi.py itself), so, like
+        # ANTHROPIC_API_KEY, there is no startup requirement for them
+        # here; Celery only actually connects when a worker/beat
+        # process starts.
+        self.CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        self.CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
+
 
 class DevelopmentConfig(Config):
     def __init__(self):

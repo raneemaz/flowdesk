@@ -228,7 +228,24 @@ duplicates" need) and a new `app/ai_reports/` module exposing `POST
 `ANALYTICS_VIEW` at full scope only; widened FD-057's own
 `generate_report_for_organization` to also return the snapshot it
 used, since persisting a freshly-recomputed one risked a mismatch
-with what the AI actually saw) is Done.
+with what the AI actually saw) is Done, and a tenant-security review
+caught and fixed one real issue: the 502 response for a failed
+generation was echoing raw upstream provider error text to the
+client, now logged server-side with a fixed generic detail returned
+instead. FD-059 (scheduled AI reports — introduces Celery/Celery Beat
+to this codebase for the first time; resolves Section 35 open
+decision #11 at the user's direction: every Monday 06:00 in each
+organization's own local timezone, covering the preceding
+Monday–Sunday week, generating even for an organization with no real
+activity yet per FR-042's own "identify missing data"; the real logic
+(`app.ai_reports.tasks.run_due_weekly_reports`) is plain, Celery-free
+Python — directly unit-tested with no broker involved — wrapped in
+one Beat-scheduled task by `app/celery_app.py`; relies entirely on
+FD-058's own `UniqueConstraint` for "no duplicates," and processes
+every organization inside its own try/except so one's failure never
+blocks another's) is Done, completing the backend half of Epic E08's
+weekly-report pipeline (FD-060's frontend and FD-061's conversational
+assistant remain).
 
 ## Local development infrastructure
 

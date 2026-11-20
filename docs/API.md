@@ -1367,7 +1367,7 @@ business logic is duplicated between the two.
   FD-053 sidebar entry with no FR actually asking for it; `AnalyticsPage`
   has no export button.
 
-## AI Reporting Service (FD-055/FD-056/FD-057/FD-058)
+## AI Reporting Service (FD-055/FD-056/FD-057/FD-058/FD-059)
 
 **`backend/app/ai/`** stays the stateless generation pipeline built
 in FD-055/056/057 (no DB model, no HTTP routes): `providers.py` (the
@@ -1445,8 +1445,49 @@ AI-generated recommendations" - a frontend (FD-060) never has to
 re-parse one blob to tell the two apart. `metrics_snapshot` is stored
 verbatim. A `UniqueConstraint` on `(organization_id, report_type,
 period_start, period_end)` is the natural key FD-059's own "no
-duplicates" acceptance criterion will need, defined now rather than
-retrofitted onto a live table later.
+duplicates" requirement actually uses (see below), defined at FD-058
+time rather than retrofitted onto a live table later.
+
+### Scheduled AI reports (FD-059)
+
+Resolves spec Section 35 open decision #11 ("weekly-report day/time
+and behavior when an organization has insufficient data") at the
+user's explicit direction: **every Monday at 06:00, in each
+organization's own local timezone**, covering the preceding
+Monday-Sunday week. An organization with no real activity yet still
+gets a report - FR-042's own "identify missing data" already covers
+an empty/near-empty snapshot; this job doesn't invent a skip
+condition the spec never asks for.
+
+`app/celery_app.py` is the Celery app factory + Beat schedule (one
+entry, `crontab(minute=0)` - every hour, on the hour, UTC); the real
+logic is `app.ai_reports.tasks.run_due_weekly_reports`, a plain,
+Celery-free function that checks every organization's own local time
+against Monday 06:00 and calls `generate_and_store_report` for
+whichever ones currently match. Being Celery-free is deliberate: the
+function is directly unit-testable with no broker/worker involved,
+and no test ever imports `app.celery_app` itself (which eagerly
+builds a second, separately-configured Flask app at import time).
+
+**"One organization's failure never blocks another's"** (Epic E08's
+acceptance criterion): every organization is processed inside its own
+try/except; an `AIReportGenerationError` (provider failure) or a
+`409` (a report for that organization/period already exists - e.g.
+the same hour's Beat tick firing twice) is logged and the sweep moves
+on to the next organization, never raised past that one.
+
+**"No duplicates"**: this job tracks nothing of its own - it relies
+entirely on `AIReport`'s own `UniqueConstraint` (FD-058) via
+`save_ai_report`'s `409`. Re-running the sweep (a worker restart
+mid-run, a retried task, Beat double-firing) is always safe: an
+organization already generated this week is skipped by the database,
+not by any bookkeeping this job would otherwise have to keep in sync
+itself.
+
+**No real Redis in this dev environment** (same gap as Docker
+elsewhere in this project) - see `backend/README.md`'s own "Scheduled
+AI reports" section under Running for how to start the worker/beat
+processes once a real broker is available.
 
 **Weekly metrics aggregation** (`app/ai/snapshot.py`,
 `build_weekly_metrics_snapshot`): combines FD-051's four already-

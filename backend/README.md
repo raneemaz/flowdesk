@@ -147,7 +147,7 @@ refuses to start without `SMTP_HOST` set (`app/__init__.py`). A failed
 send never rolls back the invitation row - see `docs/API.md`'s
 Invitations section.
 
-## AI reporting service and persistence (FD-055/FD-056/FD-057/FD-058)
+## AI reporting service, persistence, and scheduling (FD-055/FD-056/FD-057/FD-058/FD-059)
 
 `app/ai/` stays the stateless generation pipeline (no DB model, no
 HTTP routes): `providers.py` defines the swappable `AIProvider`
@@ -182,6 +182,14 @@ AI Reporting Service section for the full design rationale. Env vars
 (`.env.example`): `ANTHROPIC_API_KEY` (empty until something actually
 calls this), `ANTHROPIC_MODEL`, `AI_REQUEST_TIMEOUT_SECONDS`,
 `AI_MAX_RETRIES`, `AI_MAX_TOKENS`.
+
+`app/celery_app.py` + `app/ai_reports/tasks.py` (FD-059, new) are the
+scheduled half - see "Scheduled AI reports (FD-059)" under Running,
+below, for how to start the worker/beat processes and the Section 35
+open decision #11 resolution (Monday 06:00, each organization's own
+local timezone; an organization with no activity yet still gets a
+report, per FR-042's own "identify missing data" rather than this job
+inventing a skip condition).
 
 ## Error handling note (found during FD-010)
 
@@ -244,6 +252,33 @@ imported lazily) actually needs it, by design.
 ```bash
 FLASK_ENV=development ./.venv/Scripts/python.exe -m flask --app wsgi run
 ```
+
+### Scheduled AI reports (FD-059)
+
+Two more long-running processes, started separately from the Flask
+dev server above - `app/celery_app.py` is the Celery equivalent of
+`wsgi.py`, never imported by the Flask app itself:
+
+```bash
+FLASK_ENV=development ./.venv/Scripts/python.exe -m celery -A app.celery_app.celery_app worker --loglevel=info
+FLASK_ENV=development ./.venv/Scripts/python.exe -m celery -A app.celery_app.celery_app beat --loglevel=info
+```
+
+Beat fires the one scheduled job (`generate_weekly_reports_task`)
+every hour, on the hour (UTC); the job itself
+(`app.ai_reports.tasks.run_due_weekly_reports`) checks each
+organization's own local time against Monday 06:00 and generates
+that organization's weekly AI report only when it's actually due
+there - see `docs/API.md`'s AI Reporting Service section for the full
+design (Section 35 open decision #11's resolution).
+
+**No real Redis in this dev environment** (same gap as Docker
+elsewhere in this project) - `CELERY_BROKER_URL`/`CELERY_RESULT_BACKEND`
+point at `redis://localhost:6379/0` in `.env.example`, but nothing in
+the test suite ever starts a worker/beat process or connects to a
+broker; `app.ai_reports.tasks.run_due_weekly_reports` is plain,
+Celery-free Python, directly unit-tested with no broker involved at
+all.
 
 ## Testing
 
