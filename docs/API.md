@@ -1367,34 +1367,86 @@ business logic is duplicated between the two.
   FD-053 sidebar entry with no FR actually asking for it; `AnalyticsPage`
   has no export button.
 
-## AI Reporting Service (FD-055/FD-056/FD-057)
+## AI Reporting Service (FD-055/FD-056/FD-057/FD-058)
 
-**Design/service layer only - no HTTP endpoint yet.** Centralized in
-`backend/app/ai/`: `providers.py` (the swappable `AIProvider`
-abstraction + the one real implementation, `AnthropicProvider`),
-`schemas.py` (`WeeklyReportInput`/`WeeklyReportOutput`, FR-040/
-FR-042's contract), `service.py` (`generate_weekly_report`, which
-ties the two together, and FD-057's `generate_report_for_organization`,
-below), `snapshot.py` (FD-056's `build_weekly_metrics_snapshot`, the
-one producer of a concrete `metrics_snapshot` shape). FD-058
-(persistence), FD-059 (scheduling), and FD-060 (frontend) build on
-this - none of them exist yet, so there is nothing to call
-`generate_report_for_organization` from in a real request yet.
+**`backend/app/ai/`** stays the stateless generation pipeline built
+in FD-055/056/057 (no DB model, no HTTP routes): `providers.py` (the
+swappable `AIProvider` abstraction + the one real implementation,
+`AnthropicProvider`), `schemas.py` (`WeeklyReportInput`/
+`WeeklyReportOutput`, FR-040/FR-042's contract), `service.py`
+(`generate_weekly_report`, and FD-057's
+`generate_report_for_organization`, below), `snapshot.py` (FD-056's
+`build_weekly_metrics_snapshot`). **`backend/app/ai_reports/`**
+(FD-058, new) owns the one genuinely persisted entity this epic
+needs - the `AIReport` model and its own HTTP surface - the same
+separation `app.analytics` (computes, owns no model) and
+`app.invoices`/`app.payments` (own their own models) already draw
+elsewhere in this codebase.
 
 **Weekly summary generation** (`app/ai/service.py`,
 `generate_report_for_organization`): the one function that actually
-ties an organization + period to a validated `WeeklyReportOutput` -
-builds that organization's own metrics snapshot (FD-056), wraps it in
-the FR-040/FR-042 input contract, and calls `generate_weekly_report`
-(FD-055). Takes an already-loaded `Organization` ORM instance, not an
-`organization_id` it would look up itself - issues no database query
-of its own (the only queries happen inside
-`build_weekly_metrics_snapshot`, unchanged). `provider`/`max_tokens`/
-`timeout_seconds`/`max_retries` default to `None`, resolved from
-`current_app.config` (`ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL`/
-`AI_MAX_TOKENS`/`AI_REQUEST_TIMEOUT_SECONDS`/`AI_MAX_RETRIES`) only
-when actually needed, so a test can supply a fake provider and
-explicit overrides without needing a real API key configured.
+ties an organization + period to a validated `GeneratedWeeklyReport`
+(the `WeeklyReportOutput` **and** the `metrics_snapshot` it was built
+from - widened from just the output once FD-058 needed to persist the
+exact snapshot a report was generated from, rather than recomputing
+it a second time). Builds that organization's own metrics snapshot
+(FD-056), wraps it in the FR-040/FR-042 input contract, and calls
+`generate_weekly_report` (FD-055). Takes an already-loaded
+`Organization` ORM instance, not an `organization_id` it would look
+up itself - issues no database query of its own (the only queries
+happen inside `build_weekly_metrics_snapshot`, unchanged).
+`provider`/`max_tokens`/`timeout_seconds`/`max_retries` default to
+`None`, resolved from `current_app.config` (`ANTHROPIC_API_KEY`/
+`ANTHROPIC_MODEL`/`AI_MAX_TOKENS`/`AI_REQUEST_TIMEOUT_SECONDS`/
+`AI_MAX_RETRIES`) only when actually needed, so a test can supply a
+fake provider and explicit overrides without needing a real API key
+configured. Building the default provider when none is given can
+itself fail (no `ANTHROPIC_API_KEY` configured) - caught and
+re-raised as `AIReportGenerationError` too, so a caller only ever
+needs to catch one exception type to know "no report was produced".
+
+### AI report persistence (FD-058)
+
+`app/ai_reports/service.py`: `save_ai_report` (pure persistence - no
+AI call, no snapshot computation; a collision with an existing
+`(organization_id, report_type, period_start, period_end)` row raises
+`APIError(409)`, never a silent duplicate or overwrite) and
+`generate_and_store_report` (ties `generate_report_for_organization`
+to it). Gated by **`require_permission(Permission.ANALYTICS_VIEW)`**
+plus an explicit **full-scope-only** check in `app/ai_reports/routes.py`
+(Owner/Manager) - reusing `ANALYTICS_VIEW` rather than inventing a new
+`Permission` the spec never names, required for consistency: a
+report's content includes department/employee/overview data an
+Accountant/CustomerSupport (`limited`) or Employee (`own`) can't
+otherwise see via the analytics API at their own scope.
+
+- **`POST /organizations/{organization_id}/ai-reports/generate`** -
+  body `{"period", "period_start"?, "period_end"?}` (same FR-034
+  taxonomy as the analytics endpoints, duplicated into
+  `app.ai_reports.schemas.GenerateReportRequest` rather than imported,
+  same "don't cross-import a private per-module helper" convention).
+  `201` with the full report on success; `409` for a period collision;
+  `502` (`AI_GENERATION_FAILED`) if the AI provider call itself fails
+  or returns an invalid response - nothing is ever persisted in that
+  case, and the response's own `details` stays a fixed
+  `{"reason": "upstream_provider_error"}`, never the caught
+  exception's own text (which can carry a raw upstream error body) -
+  that's logged server-side instead.
+- **`GET /organizations/{organization_id}/ai-reports`** - paginated,
+  newest period first.
+- **`GET /organizations/{organization_id}/ai-reports/{report_id}`** -
+  one report in full, `404` for a cross-organization id.
+
+`AIReport.summary` (JSONB) holds the four FACTUAL narrative sections
+plus `missing_data`; `recommendations` (JSONB) is its own top-level
+column, matching the spec's own literal two-field split ("summary,
+recommendations") and FR-042's "clearly separate facts from
+AI-generated recommendations" - a frontend (FD-060) never has to
+re-parse one blob to tell the two apart. `metrics_snapshot` is stored
+verbatim. A `UniqueConstraint` on `(organization_id, report_type,
+period_start, period_end)` is the natural key FD-059's own "no
+duplicates" acceptance criterion will need, defined now rather than
+retrofitted onto a live table later.
 
 **Weekly metrics aggregation** (`app/ai/snapshot.py`,
 `build_weekly_metrics_snapshot`): combines FD-051's four already-
@@ -1520,6 +1572,9 @@ unlike `SMTP_HOST`, since nothing is wired to call it yet),
 | GET | `/api/v1/organizations/{organization_id}/analytics/employees/export` | Employee performance as a sanitized CSV or PDF | FD-054 |
 | GET | `/api/v1/organizations/{organization_id}/analytics/departments/export` | Department analytics as a sanitized CSV or PDF | FD-054 |
 | GET | `/api/v1/organizations/{organization_id}/analytics/finance/export` | Financial report as a sanitized CSV or PDF | FD-054 |
+| POST | `/api/v1/organizations/{organization_id}/ai-reports/generate` | Generate and persist a new AI weekly report (full scope only) | FD-058 |
+| GET | `/api/v1/organizations/{organization_id}/ai-reports` | List this organization's AI reports, newest period first | FD-058 |
+| GET | `/api/v1/organizations/{organization_id}/ai-reports/{report_id}` | View one AI report in full | FD-058 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |

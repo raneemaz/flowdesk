@@ -147,33 +147,41 @@ refuses to start without `SMTP_HOST` set (`app/__init__.py`). A failed
 send never rolls back the invitation row - see `docs/API.md`'s
 Invitations section.
 
-## AI reporting service (FD-055/FD-056/FD-057)
+## AI reporting service and persistence (FD-055/FD-056/FD-057/FD-058)
 
-`app/ai/` - service layer only, no HTTP endpoint yet (FD-058/059
-build the real persisted/scheduled pipeline on top of this).
-`providers.py` defines the swappable `AIProvider` abstraction plus the
-one real implementation, `AnthropicProvider` (plain stdlib `urllib`,
-not the vendor SDK - same reasoning as the SMTP-over-vendor-SDK choice
-above) and its own timeout/retry rules (`complete_with_retries`);
-`schemas.py` defines the weekly-report input/output contract
-(`WeeklyReportInput`/`WeeklyReportOutput`); `service.py`'s
-`generate_weekly_report` ties them together, and FD-057's
-`generate_report_for_organization` ties that to FD-056's own
-`snapshot.py`'s `build_weekly_metrics_snapshot` (combines FD-051's
-four analytics functions into one JSON-serializable `metrics_snapshot`
-dict for one organization/period - a pure, side-effect-free function;
-retrying it is always safe, there's nothing of its own to deduplicate)
-for one real organization + period, resolving `provider`/token/
-timeout/retry defaults from `current_app.config` only when not given
-explicitly. Resolves Section 35 open decision #12: Anthropic Claude
-API, no hard budget cap beyond a bounded `AI_MAX_TOKENS` +
-`AI_REQUEST_TIMEOUT_SECONDS`, and the provider only ever sees an
-already-computed metrics snapshot - never a DB session or another
-organization's data. See `docs/API.md`'s own AI Reporting Service
-section for the full design rationale. Env vars (`.env.example`):
-`ANTHROPIC_API_KEY` (empty until something actually calls this),
-`ANTHROPIC_MODEL`, `AI_REQUEST_TIMEOUT_SECONDS`, `AI_MAX_RETRIES`,
-`AI_MAX_TOKENS`.
+`app/ai/` stays the stateless generation pipeline (no DB model, no
+HTTP routes): `providers.py` defines the swappable `AIProvider`
+abstraction plus the one real implementation, `AnthropicProvider`
+(plain stdlib `urllib`, not the vendor SDK - same reasoning as the
+SMTP-over-vendor-SDK choice above) and its own timeout/retry rules
+(`complete_with_retries`); `schemas.py` defines the weekly-report
+input/output contract (`WeeklyReportInput`/`WeeklyReportOutput`);
+`service.py`'s `generate_weekly_report` ties them together, and
+FD-057's `generate_report_for_organization` ties that to FD-056's own
+`snapshot.py`'s `build_weekly_metrics_snapshot` for one real
+organization + period, returning a `GeneratedWeeklyReport` (the
+output **and** the snapshot it was built from - widened once FD-058
+needed to persist the exact snapshot a report was generated from).
+Resolves Section 35 open decision #12: Anthropic Claude API, no hard
+budget cap beyond a bounded `AI_MAX_TOKENS` + `AI_REQUEST_TIMEOUT_SECONDS`,
+and the provider only ever sees an already-computed metrics snapshot
+- never a DB session or another organization's data.
+
+`app/ai_reports/` (FD-058, new) owns the one genuinely persisted
+entity this epic needs: the `AIReport` model (`app/models/ai_report.py`
+- `summary`/`recommendations` as two separate JSONB columns, per
+FR-042's "clearly separate facts from AI-generated recommendations";
+a `UniqueConstraint` on `(organization_id, report_type, period_start,
+period_end)` defined now rather than retrofitted once FD-059 needs
+it) and its own three endpoints (`POST .../ai-reports/generate`,
+`GET .../ai-reports[/{id}]`), gated by `ANALYTICS_VIEW` at full scope
+only (Owner/Manager) - reusing the existing permission rather than
+inventing a new one, since a report's content includes data a
+limited/own-scope caller can't otherwise see. See `docs/API.md`'s own
+AI Reporting Service section for the full design rationale. Env vars
+(`.env.example`): `ANTHROPIC_API_KEY` (empty until something actually
+calls this), `ANTHROPIC_MODEL`, `AI_REQUEST_TIMEOUT_SECONDS`,
+`AI_MAX_RETRIES`, `AI_MAX_TOKENS`.
 
 ## Error handling note (found during FD-010)
 

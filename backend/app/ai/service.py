@@ -27,11 +27,25 @@ provider abstraction (`build_default_provider`) to
 deliberately **still not** built here: calling this once per org from
 a scheduled job, persisting the result, and making one organization's
 failure not block another's - that's FD-058 (persistence)/FD-059
-(scheduling)'s job. Nothing calls `generate_report_for_organization`
-yet either - still unreachable from any HTTP route."""
+(scheduling)'s job.
+
+`generate_report_for_organization` returns a `GeneratedWeeklyReport`
+(the validated `output` **and** the `metrics_snapshot` actually sent
+to the AI provider), not just the output - added when FD-058 first
+needed to persist the exact snapshot a report was generated from,
+rather than either recomputing it a second time (wasteful, and a real
+correctness risk: a second, independently-recomputed snapshot is not
+provably the same data the AI actually saw) or duplicating this
+function's own orchestration logic in `app.ai_reports.service`. This
+is the first and only consumer of this function to date (it was
+previously unreachable from anywhere but its own tests), so widening
+its return type now, before any other caller exists, is the cheapest
+time to do it."""
 
 import json
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -39,6 +53,12 @@ from app.ai.providers import AICompletionRequest, AIProvider, AIProviderError, b
 from app.ai.schemas import WeeklyReportInput, WeeklyReportOutput
 from app.ai.snapshot import build_weekly_metrics_snapshot
 from app.models import Organization
+
+
+@dataclass(frozen=True)
+class GeneratedWeeklyReport:
+    output: WeeklyReportOutput
+    metrics_snapshot: dict[str, Any]
 
 _SYSTEM_PROMPT = """You are FlowDesk's business analyst assistant. You will be given a \
 JSON object of already-verified metrics for one organization and one reporting period. \
@@ -129,12 +149,13 @@ def generate_report_for_organization(
     max_tokens: int | None = None,
     timeout_seconds: float | None = None,
     max_retries: int | None = None,
-) -> WeeklyReportOutput:
+) -> GeneratedWeeklyReport:
     """FD-057: builds this organization's own metrics snapshot
     (FD-056), wraps it in the FR-040/FR-042 input contract, and
     generates the weekly report - the one call a future caller
     (FD-058/059) needs to go from "an organization and a period" to a
-    validated `WeeklyReportOutput`.
+    validated `WeeklyReportOutput` plus the snapshot it was built
+    from.
 
     `organization` is an already-loaded ORM instance, not an
     `organization_id` this function would look up itself - a future
@@ -147,9 +168,21 @@ def generate_report_for_organization(
     `None`, resolved from `current_app.config` only when actually
     needed - so a test can supply a fake provider and explicit numeric
     overrides without ever touching Flask's app context, the same
-    testability this whole module already has."""
+    testability this whole module already has.
+
+    Building the default provider can itself fail (no
+    `ANTHROPIC_API_KEY` configured yet, raising
+    `AIProviderAuthenticationError`) - caught here and re-raised as
+    `AIReportGenerationError` too, same as every other provider-level
+    failure below, so a caller only ever needs to catch this one
+    exception type to know "no report was produced", never a raw,
+    unhandled `AIProviderError` escaping before generation even
+    starts."""
     if provider is None:
-        provider = build_default_provider()
+        try:
+            provider = build_default_provider()
+        except AIProviderError as exc:
+            raise AIReportGenerationError(f"AI provider could not be configured: {exc}") from exc
 
     if max_tokens is None or timeout_seconds is None or max_retries is None:
         from flask import current_app
@@ -171,6 +204,7 @@ def generate_report_for_organization(
         period_end=period_end,
         metrics_snapshot=metrics_snapshot,
     )
-    return generate_weekly_report(
+    output = generate_weekly_report(
         provider, report_input, max_tokens=max_tokens, timeout_seconds=timeout_seconds, max_retries=max_retries
     )
+    return GeneratedWeeklyReport(output=output, metrics_snapshot=metrics_snapshot)

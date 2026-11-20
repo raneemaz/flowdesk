@@ -1,4 +1,5 @@
 from app.models.activity import ActivityLog
+from app.models.ai_report import AIReport
 from app.models.customer import Customer, CustomerStatus
 from app.models.customer_request import CustomerRequest, RequestComment, RequestHistory, RequestPriority, RequestStatus
 from app.models.department import Department, DepartmentStatus
@@ -13,6 +14,7 @@ from app.models.user import User, UserStatus
 
 __all__ = [
     "ActivityLog",
+    "AIReport",
     "Customer",
     "CustomerRequest",
     "CustomerStatus",

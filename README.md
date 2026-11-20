@@ -219,7 +219,16 @@ timeout/retry defaults from config only when not given explicitly;
 takes an already-loaded `Organization` instance and issues no
 database query of its own; still unreachable from any HTTP route —
 FD-058/059 wire the real persisted/scheduled pipeline on top of this)
-is Done.
+is Done. FD-058 (AI report persistence — a new `AIReport` model
+(`summary`/`recommendations` as two separate JSONB columns per
+FR-042's facts-vs-recommendations split, plus a `UniqueConstraint` on
+organization/type/period defined now for FD-059's own future "no
+duplicates" need) and a new `app/ai_reports/` module exposing `POST
+.../ai-reports/generate`, `GET .../ai-reports[/{id}]`, gated by
+`ANALYTICS_VIEW` at full scope only; widened FD-057's own
+`generate_report_for_organization` to also return the snapshot it
+used, since persisting a freshly-recomputed one risked a mismatch
+with what the AI actually saw) is Done.
 
 ## Local development infrastructure
 

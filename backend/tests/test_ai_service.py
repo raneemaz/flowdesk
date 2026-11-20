@@ -215,7 +215,7 @@ def test_generate_report_for_organization_ties_the_real_snapshot_to_ai_generatio
         org = _make_org_with_owner("org-057-happy")
         provider = _FakeProvider(VALID_RESPONSE)
 
-        output = generate_report_for_organization(
+        generated = generate_report_for_organization(
             org,
             period_start=date(2026, 1, 1),
             period_end=date(2026, 1, 31),
@@ -225,9 +225,13 @@ def test_generate_report_for_organization_ties_the_real_snapshot_to_ai_generatio
             max_retries=0,
         )
 
-        assert output.period_start == date(2026, 1, 1)
-        assert output.period_end == date(2026, 1, 31)
-        assert output.model == "claude-haiku-5-5"
+        assert generated.output.period_start == date(2026, 1, 1)
+        assert generated.output.period_end == date(2026, 1, 31)
+        assert generated.output.model == "claude-haiku-5-5"
+        # The returned metrics_snapshot must be the exact one the AI
+        # provider actually saw, not a freshly recomputed one - this is
+        # what app.ai_reports.service persists.
+        assert generated.metrics_snapshot["overview"]["employee_count"] == 1
         # Proves the prompt was built from the real snapshot (one active
         # owner-membership counted), not a mock or placeholder.
         assert provider.last_request is not None
@@ -241,11 +245,11 @@ def test_generate_report_for_organization_builds_a_default_provider_when_none_gi
         fake = _FakeProvider(VALID_RESPONSE)
         monkeypatch.setattr("app.ai.service.build_default_provider", lambda: fake)
 
-        output = generate_report_for_organization(
+        generated = generate_report_for_organization(
             org, period_start=date(2026, 1, 1), period_end=date(2026, 1, 31), max_tokens=256, timeout_seconds=5, max_retries=0
         )
 
-        assert output.model == "claude-haiku-5-5"
+        assert generated.output.model == "claude-haiku-5-5"
         assert fake.last_request is not None
 
 
@@ -258,11 +262,24 @@ def test_generate_report_for_organization_falls_back_to_config_defaults(app):
         # AI_MAX_TOKENS/AI_REQUEST_TIMEOUT_SECONDS/AI_MAX_RETRIES from
         # current_app.config rather than raising or using some other
         # hardcoded value.
-        output = generate_report_for_organization(
+        generated = generate_report_for_organization(
             org, period_start=date(2026, 1, 1), period_end=date(2026, 1, 31), provider=provider
         )
 
-        assert output.model == "claude-haiku-5-5"
+        assert generated.output.model == "claude-haiku-5-5"
+
+
+def test_generate_report_for_organization_wraps_a_misconfigured_default_provider(app):
+    """No ANTHROPIC_API_KEY configured (the default in tests) must
+    surface as AIReportGenerationError, not a raw, unhandled
+    AIProviderAuthenticationError escaping before generation even
+    starts - this is exactly the failure mode a real route hits when
+    nothing supplies a provider explicitly."""
+    with app.app_context():
+        org = _make_org_with_owner("org-057-no-api-key")
+
+        with pytest.raises(AIReportGenerationError):
+            generate_report_for_organization(org, period_start=date(2026, 1, 1), period_end=date(2026, 1, 31))
 
 
 def test_generate_report_for_organization_propagates_a_provider_failure(app):

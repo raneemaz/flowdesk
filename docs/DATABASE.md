@@ -911,3 +911,52 @@ notifications (`CASCADE`). Deleting the recipient's `Membership` also
 deletes its notifications (`CASCADE`, via the composite FK) - unlike
 `activity_logs.actor_membership_id`'s `SET NULL`, a notification
 cannot meaningfully survive the membership it was sent to.
+
+### `ai_reports` (FD-058)
+
+Fields per spec Section 10.1's AIReport entity and FR-040/FR-042:
+`id`, `organization_id`, `report_type` (plain string, defaults
+`"weekly"` - only one value exists today, but this isn't modeled as a
+closed enum since a later task could add a second kind without a
+migration), `period_start`/`period_end`, `metrics_snapshot` (JSONB,
+the exact FD-056 snapshot the AI provider was given - stored verbatim
+for later auditability even if live analytics numbers have since
+changed), `summary` (JSONB: the four FACTUAL narrative sections -
+`business_overview`/`employee_productivity`/`financial_overview`/
+`operational_problems` - plus `missing_data`), `recommendations`
+(JSONB array - its own top-level column, not folded into `summary`,
+matching the spec's own literal two-field split and FR-042's "clearly
+separate facts from AI-generated recommendations"), `model`/
+`provider` (generation metadata), `generated_at` (the AI's own
+generation timestamp) and a plain `created_at` (row-insertion time -
+the two are expected to be close but aren't the same thing).
+
+**No `TimestampMixin`** - like `activity_logs`/`task_history`, a
+report is append-only once generated; there's no edit route anywhere
+in this codebase, so an `updated_at` column would imply a capability
+that doesn't exist.
+
+**No `organization` relationship()** - same precedent `activity_logs`/
+`notifications` (FD-047/FD-048) already established for the most
+recent org-scoped audit-style tables: a plain FK column, navigated by
+filtering, never by ORM relationship. `organizations` itself is
+correspondingly left untouched.
+
+**`UniqueConstraint` on `(organization_id, report_type, period_start,
+period_end)`**: there is exactly one report per organization/type/
+period, ever - the natural key FD-059's own "no duplicates"
+acceptance criterion needs, defined here rather than retrofitted onto
+a table that may already have violating rows. A collision surfaces as
+a `409` at the service layer (`app.ai_reports.service.save_ai_report`),
+never a silent second row or a silent overwrite.
+
+**Access**: `GET/POST /organizations/{id}/ai-reports...` require
+`ANALYTICS_VIEW` **plus** an explicit full-scope-only check (reusing
+the existing permission rather than inventing a new one the spec
+never names) - a report's content includes department/employee/
+overview data a `limited`/`own`-scope caller can't otherwise see via
+the analytics API, so a laxer scope here would be a real
+authorization leak, not just an inconsistency.
+
+**Cascade behavior:** deleting an `Organization` deletes its AI
+reports (`CASCADE`) - same as every other organization-owned table.
