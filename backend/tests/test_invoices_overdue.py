@@ -1,9 +1,21 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
 from app.extensions import db
 from app.models import Customer, CustomerStatus, Invoice, InvoiceLineItem, InvoiceStatus, Membership, Organization, Payment, User
+
+
+def _today_utc() -> date:
+    """`date.today()` is the OS's own local date, which can differ
+    from the app's own UTC-anchored "today" (every test org here
+    defaults to `timezone="UTC"`, and overdue detection compares
+    against that) for a few hours around local midnight, depending on
+    the machine's own timezone offset - using this instead keeps a
+    "yesterday"/"tomorrow" due_date fixture reliably on the correct
+    side of the app's own overdue boundary regardless of when the
+    suite happens to run."""
+    return datetime.now(timezone.utc).date()
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +74,7 @@ def test_a_sent_invoice_past_its_due_date_becomes_overdue_on_get(client, app):
     csrf_token = _register_and_login(client, "owner@example.com")
     org = _create_org(client, csrf_token)
     customer_id = _make_customer(app, org["id"])
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = (_today_utc() - timedelta(days=1)).isoformat()
     invoice = _create_invoice(
         client,
         csrf_token,
@@ -83,7 +95,7 @@ def test_a_sent_invoice_not_yet_due_stays_sent(client, app):
     csrf_token = _register_and_login(client, "owner2@example.com")
     org = _create_org(client, csrf_token)
     customer_id = _make_customer(app, org["id"])
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    tomorrow = (_today_utc() + timedelta(days=1)).isoformat()
     invoice = _create_invoice(
         client,
         csrf_token,
@@ -104,7 +116,7 @@ def test_a_draft_invoice_past_its_due_date_does_not_become_overdue(client, app):
     csrf_token = _register_and_login(client, "owner3@example.com")
     org = _create_org(client, csrf_token)
     customer_id = _make_customer(app, org["id"])
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = (_today_utc() - timedelta(days=1)).isoformat()
     invoice = _create_invoice(
         client, csrf_token, org["id"], customer_id=customer_id, due_date=yesterday
     ).get_json()["data"]
@@ -124,7 +136,7 @@ def test_listing_with_status_overdue_filter_picks_up_a_newly_overdue_invoice(cli
     csrf_token = _register_and_login(client, "owner4@example.com")
     org = _create_org(client, csrf_token)
     customer_id = _make_customer(app, org["id"])
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = (_today_utc() - timedelta(days=1)).isoformat()
     invoice = _create_invoice(
         client,
         csrf_token,

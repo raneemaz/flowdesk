@@ -105,6 +105,18 @@ def _get_summary(client, org_id, **params):
     return client.get(f"/api/v1/organizations/{org_id}/invoices/financial-summary", query_string=params)
 
 
+def _today_utc() -> date:
+    """`date.today()` is the OS's own local date, which can differ
+    from the app's own UTC-anchored "today" (every test org here
+    defaults to `timezone="UTC"`, and overdue detection/month-bounds
+    compare against that) for a few hours around local midnight,
+    depending on the machine's own timezone offset - using this
+    instead keeps a "yesterday"/"today" fixture reliably on the
+    correct side of the app's own boundaries regardless of when the
+    suite happens to run."""
+    return datetime.now(timezone.utc).date()
+
+
 def test_current_month_bounds_rolls_over_from_december_to_january():
     december_instant = datetime(2026, 12, 15, 12, 0, tzinfo=timezone.utc)
 
@@ -148,7 +160,7 @@ def test_total_collected_and_outstanding_balance_after_a_partial_payment(client,
     customer_id = _make_customer(app, org["id"])
     invoice = _create_invoice(client, csrf_token, org["id"], customer_id, unit_price="100.00")
     _issue(client, csrf_token, org["id"], invoice["id"])
-    _record_payment(client, csrf_token, org["id"], invoice["id"], "40.00", date.today().isoformat(), "key-1")
+    _record_payment(client, csrf_token, org["id"], invoice["id"], "40.00", _today_utc().isoformat(), "key-1")
 
     response = _get_summary(client, org["id"])
 
@@ -165,7 +177,7 @@ def test_fully_paid_invoice_contributes_zero_outstanding(client, app):
     customer_id = _make_customer(app, org["id"])
     invoice = _create_invoice(client, csrf_token, org["id"], customer_id, unit_price="100.00")
     _issue(client, csrf_token, org["id"], invoice["id"])
-    _record_payment(client, csrf_token, org["id"], invoice["id"], "100.00", date.today().isoformat(), "key-1")
+    _record_payment(client, csrf_token, org["id"], invoice["id"], "100.00", _today_utc().isoformat(), "key-1")
 
     response = _get_summary(client, org["id"])
 
@@ -180,7 +192,7 @@ def test_overdue_invoice_count_reflects_the_lazy_overdue_refresh(client, app):
     csrf_token = _register_and_login(client, "owner4@example.com")
     org = _create_org(client, csrf_token)
     customer_id = _make_customer(app, org["id"])
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = (_today_utc() - timedelta(days=1)).isoformat()
     invoice = _create_invoice(client, csrf_token, org["id"], customer_id, unit_price="100.00", due_date=yesterday)
     _issue(client, csrf_token, org["id"], invoice["id"])
 
@@ -196,9 +208,9 @@ def test_monthly_revenue_collected_defaults_to_the_current_month(client, app):
     customer_id = _make_customer(app, org["id"])
     invoice = _create_invoice(client, csrf_token, org["id"], customer_id, unit_price="200.00")
     _issue(client, csrf_token, org["id"], invoice["id"])
-    older_invoice_date = (date.today() - timedelta(days=45)).isoformat()
+    older_invoice_date = (_today_utc() - timedelta(days=45)).isoformat()
     _record_payment(client, csrf_token, org["id"], invoice["id"], "30.00", older_invoice_date, "key-old")
-    _record_payment(client, csrf_token, org["id"], invoice["id"], "50.00", date.today().isoformat(), "key-new")
+    _record_payment(client, csrf_token, org["id"], invoice["id"], "50.00", _today_utc().isoformat(), "key-new")
 
     response = _get_summary(client, org["id"])
 
@@ -249,8 +261,8 @@ def test_recent_payments_are_ordered_newest_first(client, app):
     customer_id = _make_customer(app, org["id"])
     invoice = _create_invoice(client, csrf_token, org["id"], customer_id, unit_price="200.00")
     _issue(client, csrf_token, org["id"], invoice["id"])
-    _record_payment(client, csrf_token, org["id"], invoice["id"], "10.00", date.today().isoformat(), "key-1")
-    _record_payment(client, csrf_token, org["id"], invoice["id"], "20.00", date.today().isoformat(), "key-2")
+    _record_payment(client, csrf_token, org["id"], invoice["id"], "10.00", _today_utc().isoformat(), "key-1")
+    _record_payment(client, csrf_token, org["id"], invoice["id"], "20.00", _today_utc().isoformat(), "key-2")
 
     response = _get_summary(client, org["id"])
 
