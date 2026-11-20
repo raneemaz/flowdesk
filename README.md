@@ -243,9 +243,19 @@ Python — directly unit-tested with no broker involved — wrapped in
 one Beat-scheduled task by `app/celery_app.py`; relies entirely on
 FD-058's own `UniqueConstraint` for "no duplicates," and processes
 every organization inside its own try/except so one's failure never
-blocks another's) is Done, completing the backend half of Epic E08's
-weekly-report pipeline (FD-060's frontend and FD-061's conversational
-assistant remain).
+blocks another's) is Done. FD-060 (AI Reports frontend — list, detail,
+period, findings, recommendations clearly labeled advisory; the "AI
+Reports" sidebar entry deferred since FD-053 now exists, gated by the
+same UI-only full-scope-only hint the backend itself enforces; no
+"generate now" button — FD-059's scheduled job is the only producer of
+a report, per this task's own title; the detail page satisfies FR-042
+directly — period always shown, missing data called out only when the
+AI actually named a gap, recommendations rendered in their own
+visually distinct, "ADVISORY"-labeled section, never mixed with the
+four factual ones; verified against the real backend in a real
+browser, including the cross-role 403 case) is Done, completing Epic
+E08's weekly-report pipeline (only FD-061's conversational assistant
+remains).
 
 ## Local development infrastructure
 

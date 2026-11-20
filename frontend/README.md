@@ -12,9 +12,11 @@ frontend - list/board/calendar/My Tasks, assignment, comments, history
 assignment, status controls (FD-039), the invoice frontend - editor,
 payment form, balance/status refresh, PDF access (FD-046), the
 notification frontend - center, unread count, mark read, navigate to
-record (FD-050), and the dashboards & analytics frontend - the real
+record (FD-050), the dashboards & analytics frontend - the real
 persistent shell, role-specific Overview dashboards, and a charted
-Analytics page over FD-052's API (FD-053) - exist so far.
+Analytics page over FD-052's API (FD-053), and the AI Reports
+frontend - list, detail, period, findings, recommendations clearly
+labeled advisory (FD-060) - exist so far.
 
 ## Stack
 
@@ -750,6 +752,66 @@ upcoming-vs-overdue conflation bug above); and `/analytics` showed
 only the Employee performance section, with exactly one row - this
 caller's own, server-forced regardless of any target - no Overview/
 Departments/Finance sections rendered for this role at all.
+
+## AI Reports frontend - list, detail, period, findings, recommendations clearly labeled advisory (FD-060)
+
+`AIReportsPage` (`/ai-reports`, paginated list) and `AIReportDetailPage`
+(`/ai-reports/:reportId`) - the "AI Reports" sidebar entry Sidebar.tsx's
+own comment had deferred since FD-053. `features/aiReports/permissions.ts`'s
+`canViewAIReports` is the same UI-only hint shape every other feature
+permission file uses (owner/manager only, mirroring the backend's
+full-scope-only `ANALYTICS_VIEW` check for this resource) - not
+additionally gated inside either page's own query, same precedent
+`InvoiceListPage`'s own `canManageInvoices`-gated sidebar entry already
+established: a role hidden from the link gets a real `403` if it
+reaches the route directly, confirmed in manual verification below.
+
+**No "generate now" button** - this task's own title is "list, detail,
+period, findings, recommendations clearly labeled advisory", not
+"generate"; FD-059's scheduled job is the only producer of a report.
+Adding a manual trigger wasn't asked for and isn't built here.
+
+**FR-042's reliability requirements drive the detail page's own
+layout**, not just its content: the period always renders in the page
+header ("always show the reporting period"); a `missing_data` section
+renders only when the AI actually named a gap, never a fabricated
+"nothing missing" ("identify missing data"); and the four factual
+sections (`business_overview`/`employee_productivity`/
+`financial_overview`/`operational_problems`) render as plain cards
+while Recommendations gets its own visually distinct, dashed-border
+section with an explicit "ADVISORY" badge and a one-line disclaimer
+("these are the AI's own suggested actions, not verified facts") -
+"clearly labeled advisory" is a real visual treatment here, not just a
+word in a sentence somewhere on the page.
+
+140 unit/component tests pass (6 new: list rendering + link target,
+empty state, pagination visibility, detail rendering with all four
+sections + missing data + recommendations separated, missing-data
+section omitted when empty, 404 handling), clean `tsc -b --noEmit`,
+clean `npm run build`.
+
+**Verified against the real backend in a real browser.** This dev
+environment has no real Redis instance (same documented gap as
+Docker/SMTP elsewhere in this project), so `DevelopmentConfig`'s
+session backend can't connect and login 500s - worked around for this
+one verification session with a scratch script (never committed) that
+swaps in `fakeredis` (already a dev/test dependency) purely so a real
+browser session could log in. Registered an Owner, created an
+organization, confirmed "AI Reports" appears in the sidebar and
+`/ai-reports` shows the correct empty state with no reports yet;
+seeded one real `AIReport` row via `app.ai_reports.service.save_ai_report`
+(the actual persistence function, not a hand-built fixture) with two
+missing-data entries and two recommendations; confirmed the list page
+showed it with the right period/model, and the detail page rendered
+all four factual sections, the missing-data callout, and both
+recommendations inside the dashed "ADVISORY" section, clearly
+separated from the facts above it. Created a second user with an
+Employee membership and confirmed the sidebar correctly omitted "AI
+Reports", and that navigating to `/ai-reports` directly as that user
+surfaced the real backend's `403 You do not have permission to do
+this.` message rather than hanging or leaking data - confirmed via
+`read_network_requests` that the request was a genuine `403 FORBIDDEN`
+from the backend, not a client-side guess.
 
 ## Setup
 

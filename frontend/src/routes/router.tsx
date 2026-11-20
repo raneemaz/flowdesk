@@ -1,5 +1,7 @@
 import { createBrowserRouter } from "react-router-dom";
 
+import { AIReportDetailPage } from "@/pages/AIReportDetailPage";
+import { AIReportsPage } from "@/pages/AIReportsPage";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { CreateOrganizationPage } from "@/pages/CreateOrganizationPage";
@@ -53,6 +55,8 @@ export const router = createBrowserRouter([
           { path: "/invoices/:invoiceId/edit", element: <InvoiceFormPage /> },
           { path: "/notifications", element: <NotificationsPage /> },
           { path: "/analytics", element: <AnalyticsPage /> },
+          { path: "/ai-reports", element: <AIReportsPage /> },
+          { path: "/ai-reports/:reportId", element: <AIReportDetailPage /> },
         ],
       },
     ],

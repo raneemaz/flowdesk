@@ -1367,7 +1367,7 @@ business logic is duplicated between the two.
   FD-053 sidebar entry with no FR actually asking for it; `AnalyticsPage`
   has no export button.
 
-## AI Reporting Service (FD-055/FD-056/FD-057/FD-058/FD-059)
+## AI Reporting Service (FD-055/FD-056/FD-057/FD-058/FD-059/FD-060)
 
 **`backend/app/ai/`** stays the stateless generation pipeline built
 in FD-055/056/057 (no DB model, no HTTP routes): `providers.py` (the
@@ -1441,12 +1441,15 @@ otherwise see via the analytics API at their own scope.
 plus `missing_data`; `recommendations` (JSONB) is its own top-level
 column, matching the spec's own literal two-field split ("summary,
 recommendations") and FR-042's "clearly separate facts from
-AI-generated recommendations" - a frontend (FD-060) never has to
-re-parse one blob to tell the two apart. `metrics_snapshot` is stored
-verbatim. A `UniqueConstraint` on `(organization_id, report_type,
-period_start, period_end)` is the natural key FD-059's own "no
-duplicates" requirement actually uses (see below), defined at FD-058
-time rather than retrofitted onto a live table later.
+AI-generated recommendations" - `frontend/src/pages/AIReportDetailPage.tsx`
+(FD-060) never has to re-parse one blob to tell the two apart; it
+renders the four factual fields as plain text and `recommendations`
+in its own visually distinct, "ADVISORY"-labeled section.
+`metrics_snapshot` is stored verbatim. A `UniqueConstraint` on
+`(organization_id, report_type, period_start, period_end)` is the
+natural key FD-059's own "no duplicates" requirement actually uses
+(see below), defined at FD-058 time rather than retrofitted onto a
+live table later.
 
 ### Scheduled AI reports (FD-059)
 

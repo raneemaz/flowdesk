@@ -66,9 +66,10 @@ describe("Sidebar", () => {
     expect(screen.getByRole("link", { name: "Requests" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Invoices" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Analytics" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "AI Reports" })).toBeInTheDocument();
   });
 
-  it("hides Departments, Customers, Invoices from an Employee but still shows Analytics", async () => {
+  it("hides Departments, Customers, Invoices, AI Reports from an Employee but still shows Analytics", async () => {
     renderSidebar("employee");
 
     expect(await screen.findByRole("link", { name: "Overview" })).toBeInTheDocument();
@@ -78,6 +79,10 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("link", { name: "Departments" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Customers" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Invoices" })).not.toBeInTheDocument();
+    // AI Reports (FD-060) is full-scope only (Owner/Manager) - same
+    // features/aiReports/permissions.ts gate the backend itself
+    // enforces.
+    expect(screen.queryByRole("link", { name: "AI Reports" })).not.toBeInTheDocument();
     // Employee's CUSTOMER_REQUEST_MANAGE is `assigned`, not `none` - so
     // Requests is still reachable (features/requests/permissions.ts's
     // canAccessRequests), unlike Customers/Invoices/Departments.
@@ -90,6 +95,7 @@ describe("Sidebar", () => {
     expect(await screen.findByRole("link", { name: "Invoices" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Requests" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Departments" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "AI Reports" })).not.toBeInTheDocument();
   });
 
   it("renders nothing without an active organization", () => {

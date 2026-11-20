@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 
 import { useOrganization } from "@/contexts/OrganizationContext";
+import { canViewAIReports } from "@/features/aiReports/permissions";
 import { canManageCustomers } from "@/features/customers/permissions";
 import { canManageDepartments } from "@/features/employees/permissions";
 import { canManageInvoices } from "@/features/invoices/permissions";
@@ -14,13 +15,13 @@ interface NavItem {
 
 // Spec Section 12.2's own sidebar list is Overview, Employees,
 // Departments, Tasks, Customers, Requests, Invoices, Analytics, AI
-// Reports, Activity, Settings - the last three are deliberately
-// omitted here. No FD task in the 65-task backlog ever builds an
-// Activity or Settings *page* (FD-047/FD-048 only ever built their
-// read APIs), and AI Reports' own frontend is FD-060, not this task -
-// linking to any of the three would be exactly the "placeholder
-// functionality" this project's own rules forbid. Revisit this list
-// once/if those pages exist.
+// Reports, Activity, Settings - Activity and Settings are still
+// deliberately omitted. No FD task in the 65-task backlog ever builds
+// an Activity or Settings *page* (FD-047/FD-048 only ever built their
+// read APIs) - linking to either would be exactly the "placeholder
+// functionality" this project's own rules forbid. AI Reports (FD-060)
+// is no longer one of the omissions. Revisit the remaining two once/if
+// those pages exist.
 function navItems(role: MembershipRole): NavItem[] {
   const items: NavItem[] = [
     { to: "/", label: "Overview" },
@@ -34,6 +35,7 @@ function navItems(role: MembershipRole): NavItem[] {
   // Every active role reaches at least the employees sub-view of
   // Analytics (features/analytics/permissions.ts) - never conditional.
   items.push({ to: "/analytics", label: "Analytics" });
+  if (canViewAIReports(role)) items.push({ to: "/ai-reports", label: "AI Reports" });
   return items;
 }
 
