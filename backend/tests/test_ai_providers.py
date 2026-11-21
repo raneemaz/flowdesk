@@ -14,9 +14,12 @@ from app.ai.providers import (
     AIProviderResponseError,
     AIProviderTimeoutError,
     AIProviderUnavailableError,
+    AIToolCompletionResponse,
+    AIToolDefinition,
     AnthropicProvider,
     _send_anthropic_request,
     complete_with_retries,
+    complete_with_tools_with_retries,
 )
 
 
@@ -256,3 +259,165 @@ def test_complete_with_retries_never_retries_non_transient_errors(error_cls):
         )
 
     assert provider.calls == 1  # no retry at all
+
+
+# --- AIProvider.complete_with_tools (FD-061) - default + AnthropicProvider ---
+
+
+_TOOLS = [AIToolDefinition(name="get_weather", description="Gets the weather", input_schema={"type": "object"})]
+
+
+def test_complete_with_tools_default_raises_not_implemented():
+    """A provider that never overrides complete_with_tools (every
+    FD-055/057 fake provider in this test suite, and _AlwaysFailsProvider/
+    _FlakyProvider above) must stay instantiable and usable for
+    `complete` - only calling complete_with_tools on it fails."""
+    provider = _AlwaysFailsProvider(AIProviderTimeoutError("irrelevant"))
+
+    with pytest.raises(NotImplementedError):
+        provider.complete_with_tools([], system_prompt="s", tools=_TOOLS, max_tokens=10, timeout_seconds=5)
+
+
+def _anthropic_tool_use_response(tool_name="get_weather", tool_input=None, text=None):
+    content = []
+    if text is not None:
+        content.append({"type": "text", "text": text})
+    content.append({"type": "tool_use", "id": "toolu_1", "name": tool_name, "input": tool_input or {}})
+    return {"content": content, "model": "claude-haiku-5-5", "usage": {"input_tokens": 3, "output_tokens": 2}}
+
+
+def test_anthropic_complete_with_tools_parses_a_tool_use_response():
+    provider = AnthropicProvider(
+        api_key="key", model="m", request_fn=lambda *a: _anthropic_tool_use_response(tool_input={"city": "Paris"})
+    )
+
+    response = provider.complete_with_tools(
+        [{"role": "user", "content": "weather?"}], system_prompt="sys", tools=_TOOLS, max_tokens=10, timeout_seconds=5
+    )
+
+    assert response.text is None
+    assert len(response.tool_uses) == 1
+    assert response.tool_uses[0].name == "get_weather"
+    assert response.tool_uses[0].input == {"city": "Paris"}
+    assert response.tool_uses[0].id == "toolu_1"
+
+
+def test_anthropic_complete_with_tools_parses_a_final_text_only_response():
+    provider = AnthropicProvider(api_key="key", model="m", request_fn=lambda *a: _anthropic_response("All done."))
+
+    response = provider.complete_with_tools(
+        [{"role": "user", "content": "weather?"}], system_prompt="sys", tools=_TOOLS, max_tokens=10, timeout_seconds=5
+    )
+
+    assert response.text == "All done."
+    assert response.tool_uses == []
+
+
+def test_anthropic_complete_with_tools_handles_both_text_and_a_tool_use_in_one_response():
+    provider = AnthropicProvider(
+        api_key="key",
+        model="m",
+        request_fn=lambda *a: _anthropic_tool_use_response(tool_input={"city": "Paris"}, text="Let me check."),
+    )
+
+    response = provider.complete_with_tools(
+        [{"role": "user", "content": "weather?"}], system_prompt="sys", tools=_TOOLS, max_tokens=10, timeout_seconds=5
+    )
+
+    assert response.text == "Let me check."
+    assert len(response.tool_uses) == 1
+
+
+def test_anthropic_complete_with_tools_sends_tool_definitions_and_message_history():
+    captured = {}
+
+    def fake_request_fn(api_key, payload, timeout_seconds):
+        captured["payload"] = payload
+        return _anthropic_response("ok")
+
+    provider = AnthropicProvider(api_key="key", model="m", request_fn=fake_request_fn)
+    messages = [{"role": "user", "content": "weather?"}, {"role": "assistant", "content": "checking"}]
+
+    provider.complete_with_tools(messages, system_prompt="sys", tools=_TOOLS, max_tokens=10, timeout_seconds=5)
+
+    assert captured["payload"]["messages"] == messages
+    assert captured["payload"]["tools"] == [
+        {"name": "get_weather", "description": "Gets the weather", "input_schema": {"type": "object"}}
+    ]
+    assert captured["payload"]["system"] == "sys"
+
+
+def test_anthropic_complete_with_tools_raises_response_error_on_missing_content():
+    provider = AnthropicProvider(api_key="key", model="m", request_fn=lambda *a: {"model": "m"})
+
+    with pytest.raises(AIProviderResponseError):
+        provider.complete_with_tools([], system_prompt="sys", tools=_TOOLS, max_tokens=10, timeout_seconds=5)
+
+
+# --- complete_with_tools_with_retries -----------------------------------
+
+
+class _FlakyToolProvider(AIProvider):
+    def __init__(self, error: Exception, fail_count: int):
+        self._error = error
+        self._fail_count = fail_count
+        self.calls = 0
+
+    def complete(self, request, *, timeout_seconds):
+        raise NotImplementedError("not exercised by these tests")
+
+    def complete_with_tools(self, messages, *, system_prompt, tools, max_tokens, timeout_seconds):
+        self.calls += 1
+        if self.calls <= self._fail_count:
+            raise self._error
+        return AIToolCompletionResponse(text="ok", tool_uses=[], model="m", input_tokens=1, output_tokens=1)
+
+
+class _AlwaysFailsToolProvider(AIProvider):
+    def __init__(self, error: Exception):
+        self._error = error
+        self.calls = 0
+
+    def complete(self, request, *, timeout_seconds):
+        raise NotImplementedError("not exercised by these tests")
+
+    def complete_with_tools(self, messages, *, system_prompt, tools, max_tokens, timeout_seconds):
+        self.calls += 1
+        raise self._error
+
+
+def test_complete_with_tools_with_retries_succeeds_after_transient_failures():
+    provider = _FlakyToolProvider(AIProviderTimeoutError("slow"), fail_count=1)
+    sleeps, sleep_fn = _sleep_recorder()
+
+    response = complete_with_tools_with_retries(
+        provider, [], system_prompt="s", tools=_TOOLS, max_tokens=10, max_retries=2, sleep_fn=sleep_fn
+    )
+
+    assert response.text == "ok"
+    assert provider.calls == 2
+    assert sleeps == [1.0]
+
+
+def test_complete_with_tools_with_retries_raises_after_exhausting_retries():
+    provider = _AlwaysFailsToolProvider(AIProviderRateLimitError("slow down"))
+    _, sleep_fn = _sleep_recorder()
+
+    with pytest.raises(AIProviderRateLimitError):
+        complete_with_tools_with_retries(
+            provider, [], system_prompt="s", tools=_TOOLS, max_tokens=10, max_retries=2, sleep_fn=sleep_fn
+        )
+
+    assert provider.calls == 3
+
+
+def test_complete_with_tools_with_retries_never_retries_non_transient_errors():
+    provider = _AlwaysFailsToolProvider(AIProviderAuthenticationError("bad key"))
+    _, sleep_fn = _sleep_recorder()
+
+    with pytest.raises(AIProviderAuthenticationError):
+        complete_with_tools_with_retries(
+            provider, [], system_prompt="s", tools=_TOOLS, max_tokens=10, max_retries=5, sleep_fn=sleep_fn
+        )
+
+    assert provider.calls == 1

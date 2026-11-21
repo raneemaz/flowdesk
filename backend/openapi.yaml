@@ -4113,6 +4113,83 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /organizations/{organization_id}/ai-assistant/ask:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [AIAssistant]
+      summary: Ask the conversational AI assistant a question (FD-061, FR-041)
+      description: >
+        Requires ANALYTICS_VIEW - every role has at least some non-none
+        scope for it (Owner/Manager full, Employee own, Accountant/
+        CustomerSupport limited), so this never 403s any role at the
+        route level. What varies by role is the real answer: each tool
+        the assistant can call (app.ai_assistant.tools) enforces its
+        own scope/role check internally, exactly like the equivalent
+        analytics endpoint would - a role a tool denies gets a plain
+        "I can't access that" woven into the assistant's own answer,
+        not a blanket 403 for the whole feature. Read-only - no tool
+        exposed to the model creates, edits, or deletes anything.
+      operationId: askOrganizationAIAssistant
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              additionalProperties: false
+              properties:
+                question:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      responses:
+        "200":
+          description: The assistant's answer
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [answer]
+                        properties:
+                          answer:
+                            type: string
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Caller is not an active member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed (missing or empty question)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: The AI provider call failed or returned an invalid response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /health:
     get:
       tags: [Health]

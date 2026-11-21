@@ -1367,7 +1367,7 @@ business logic is duplicated between the two.
   FD-053 sidebar entry with no FR actually asking for it; `AnalyticsPage`
   has no export button.
 
-## AI Reporting Service (FD-055/FD-056/FD-057/FD-058/FD-059/FD-060)
+## AI Reporting Service (FD-055/FD-056/FD-057/FD-058/FD-059/FD-060/FD-061)
 
 **`backend/app/ai/`** stays the stateless generation pipeline built
 in FD-055/056/057 (no DB model, no HTTP routes): `providers.py` (the
@@ -1550,6 +1550,58 @@ unlike `SMTP_HOST`, since nothing is wired to call it yet),
 `ANTHROPIC_MODEL`, `AI_REQUEST_TIMEOUT_SECONDS`, `AI_MAX_RETRIES`,
 `AI_MAX_TOKENS`.
 
+### Conversational AI assistant (FD-061)
+
+**`POST /organizations/{organization_id}/ai-assistant/ask`** (FR-041:
+"How many tasks were completed this month?", "Which department has
+the most overdue tasks?" - retrieves authorized, structured data
+before answering). Body `{"question": string}`. Gated by
+`require_permission(Permission.ANALYTICS_VIEW)`, but every role has at
+least some non-`none` scope for it, so the route itself never `403`s
+any role - what varies by role is the real answer: each tool the
+assistant can call enforces its own scope/role check internally,
+exactly like the equivalent analytics endpoint already does, rather
+than a blanket route-level gate.
+
+**No new authorization logic, no new tool-calling framework of its
+own weight** - `app/ai_assistant/tools.py`'s four tools
+(`get_overview_metrics`/`get_employee_performance`/
+`get_department_analytics`/`get_financial_analytics`) are thin
+wrappers around FD-051's own already-reviewed analytics functions,
+taking only the FR-034 period taxonomy as input (no
+`target_membership_id`/`department_id` filter is exposed to the model -
+resolving a name the user typed to an id would need a further
+"search by name" tool this task wasn't asked to build). A tool call
+the real caller's own role/scope doesn't allow comes back as a
+`{"error": ...}` JSON result fed to the model, never a crashed
+request - the system prompt instructs the model to tell the user
+plainly it can't access that information, never to guess a number.
+
+**"No unapproved writes"** (this task's own title): every tool is
+read-only; there is no tool that creates, edits, or deletes anything.
+This isn't a runtime-enforced sandbox around a larger tool surface -
+no write tool exists for the model to call, full stop.
+
+**Stateless, one question in, one answer out** (FR-041's own example
+shape) - `app/ai_assistant/service.py`'s `ask_assistant` runs a
+bounded (5-round) tool-use loop internally per request, but nothing is
+persisted; unlike `AIReport` (FD-058), there is no conversation-history
+model.
+
+`app/ai/providers.py` gained `complete_with_tools`/
+`complete_with_tools_with_retries` for this - additive alongside the
+original single-turn `complete`/`complete_with_retries` (unchanged,
+still what `generate_weekly_report` uses). `AIProvider
+.complete_with_tools` is a concrete method with a `NotImplementedError`
+default rather than a second `@abc.abstractmethod`, so every provider
+subclass FD-055/057 already shipped - including every fake test
+provider - stays valid without retrofitting a method it never needed.
+
+**Backend only** - no frontend chat widget exists (unlike every other
+frontend task in this backlog, FD-061's own title names no "frontend";
+documented gap, same precedent as Activity/Settings never getting
+pages).
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -1619,6 +1671,7 @@ unlike `SMTP_HOST`, since nothing is wired to call it yet),
 | POST | `/api/v1/organizations/{organization_id}/ai-reports/generate` | Generate and persist a new AI weekly report (full scope only) | FD-058 |
 | GET | `/api/v1/organizations/{organization_id}/ai-reports` | List this organization's AI reports, newest period first | FD-058 |
 | GET | `/api/v1/organizations/{organization_id}/ai-reports/{report_id}` | View one AI report in full | FD-058 |
+| POST | `/api/v1/organizations/{organization_id}/ai-assistant/ask` | Ask the conversational AI assistant a question (read-only) | FD-061 |
 | GET | `/api/v1/health` | Liveness + DB connectivity check | FD-002, FD-004 |
 | GET | `/api/v1/openapi.json` | This contract, as JSON | FD-007 |
 | GET | `/api/v1/docs` | Interactive Swagger UI | FD-007 |

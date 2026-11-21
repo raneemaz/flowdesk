@@ -4,6 +4,7 @@ import os
 from flask import Flask
 
 from app.activity.routes import activity_bp
+from app.ai_assistant.routes import ai_assistant_bp
 from app.ai_reports.routes import ai_reports_bp
 from app.analytics.routes import analytics_bp
 from app.auth.routes import auth_bp
@@ -69,6 +70,7 @@ def register_blueprints(app):
     app.register_blueprint(activity_bp, url_prefix=API_PREFIX)
     app.register_blueprint(analytics_bp, url_prefix=API_PREFIX)
     app.register_blueprint(ai_reports_bp, url_prefix=API_PREFIX)
+    app.register_blueprint(ai_assistant_bp, url_prefix=API_PREFIX)
     app.register_blueprint(notifications_bp, url_prefix=API_PREFIX)
     app.register_blueprint(health_bp, url_prefix=API_PREFIX)
     app.register_blueprint(docs_bp, url_prefix=API_PREFIX)

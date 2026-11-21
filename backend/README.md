@@ -147,7 +147,7 @@ refuses to start without `SMTP_HOST` set (`app/__init__.py`). A failed
 send never rolls back the invitation row - see `docs/API.md`'s
 Invitations section.
 
-## AI reporting service, persistence, and scheduling (FD-055/FD-056/FD-057/FD-058/FD-059)
+## AI reporting service, persistence, scheduling, and assistant (FD-055/FD-056/FD-057/FD-058/FD-059/FD-061)
 
 `app/ai/` stays the stateless generation pipeline (no DB model, no
 HTTP routes): `providers.py` defines the swappable `AIProvider`
@@ -190,6 +190,17 @@ open decision #11 resolution (Monday 06:00, each organization's own
 local timezone; an organization with no activity yet still gets a
 report, per FR-042's own "identify missing data" rather than this job
 inventing a skip condition).
+
+`app/ai_assistant/` (FD-061, new) is the conversational assistant
+(FR-041) - `tools.py`'s four tools are thin, permission-aware wrappers
+around FD-051's own analytics functions (no new authorization logic);
+`service.py`'s `ask_assistant` runs a bounded tool-use loop against
+`app/ai/providers.py`'s new `complete_with_tools` (additive alongside
+the original `complete`); `routes.py` exposes the one endpoint, `POST
+.../ai-assistant/ask`. Read-only - no tool creates, edits, or deletes
+anything ("no unapproved writes", this task's own title). Backend
+only, no frontend chat widget. See `docs/API.md`'s own "Conversational
+AI assistant" section for the full design rationale.
 
 ## Error handling note (found during FD-010)
 

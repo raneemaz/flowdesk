@@ -42,7 +42,18 @@ deliberately no production-startup requirement for
 `ANTHROPIC_API_KEY` yet, unlike `SMTP_HOST`'s own check in
 `app/__init__.py`. That requirement belongs with whichever future
 task first makes a real call load-bearing, not with this design-only
-one."""
+one.
+
+FD-061 adds `complete_with_tools`/`complete_with_tools_with_retries`
+below - the multi-turn, tool-use completion shape the conversational
+assistant needs, additive alongside the original single-turn
+`complete`/`complete_with_retries` (unchanged, still what
+`app.ai.service.generate_weekly_report` uses). `AIProvider
+.complete_with_tools` is a concrete method with a `NotImplementedError`
+default rather than a second `@abc.abstractmethod`, so every provider
+subclass FD-055/057 already shipped - including every fake test
+provider - stays valid without retrofitting a method it never
+needed."""
 
 import abc
 import json
@@ -113,6 +124,47 @@ class AICompletionResponse:
     output_tokens: int
 
 
+@dataclass(frozen=True)
+class AIToolDefinition:
+    """FD-061: one tool the model may call, in Anthropic's own native
+    tool-definition shape (`name`/`description`/`input_schema` map 1:1
+    onto the Messages API's own `tools` parameter) - see this module's
+    docstring for why `complete_with_tools` below deals in Anthropic's
+    own wire format directly rather than a fully provider-agnostic
+    intermediate representation."""
+
+    name: str
+    description: str
+    input_schema: dict
+
+
+@dataclass(frozen=True)
+class AIToolUse:
+    """The model's own request to call one tool - `id` must be echoed
+    back verbatim in the matching `tool_result` message so the
+    provider can match a result to the call that produced it."""
+
+    id: str
+    name: str
+    input: dict
+
+
+@dataclass(frozen=True)
+class AIToolCompletionResponse:
+    """`text` is the model's own prose for this turn (`None` when the
+    model only asked to call tools and said nothing else yet);
+    `tool_uses` is empty exactly when the model is done and `text` is
+    its final answer - `app.ai_assistant.service`'s own orchestration
+    loop stops exactly when this list is empty, never on a fixed
+    number of turns alone."""
+
+    text: str | None
+    tool_uses: list[AIToolUse]
+    model: str
+    input_tokens: int
+    output_tokens: int
+
+
 class AIProvider(abc.ABC):
     """Every concrete provider raises an `AIProviderError` subclass on
     any failure - never returns a partial/fabricated response, so a
@@ -121,6 +173,24 @@ class AIProvider(abc.ABC):
     @abc.abstractmethod
     def complete(self, request: AICompletionRequest, *, timeout_seconds: float) -> AICompletionResponse:
         raise NotImplementedError
+
+    def complete_with_tools(
+        self,
+        messages: list[dict],
+        *,
+        system_prompt: str,
+        tools: list[AIToolDefinition],
+        max_tokens: int,
+        timeout_seconds: float,
+    ) -> AIToolCompletionResponse:
+        """FD-061's tool-use capability - deliberately a concrete method
+        with a `NotImplementedError` default, not a second
+        `@abc.abstractmethod`, so every `AIProvider` subclass FD-055/057
+        already shipped (including every fake test provider that only
+        ever exercises `complete`) stays valid without retrofitting a
+        method it never needed. Only `AnthropicProvider` below actually
+        overrides this."""
+        raise NotImplementedError("This provider does not support tool-use completions.")
 
 
 def _send_anthropic_request(api_key: str, payload: dict, timeout_seconds: float) -> dict:
@@ -201,6 +271,48 @@ class AnthropicProvider(AIProvider):
         except (KeyError, TypeError) as exc:
             raise AIProviderResponseError(f"Unexpected Anthropic response shape: {exc}") from exc
 
+    def complete_with_tools(
+        self,
+        messages: list[dict],
+        *,
+        system_prompt: str,
+        tools: list[AIToolDefinition],
+        max_tokens: int,
+        timeout_seconds: float,
+    ) -> AIToolCompletionResponse:
+        payload = {
+            "model": self._model,
+            "max_tokens": max_tokens,
+            "system": system_prompt,
+            "messages": messages,
+            "tools": [
+                {"name": tool.name, "description": tool.description, "input_schema": tool.input_schema}
+                for tool in tools
+            ],
+        }
+        body = self._request_fn(self._api_key, payload, timeout_seconds)
+
+        if not isinstance(body, dict):
+            raise AIProviderResponseError("Anthropic API response was not a JSON object.")
+        try:
+            content_blocks = body["content"]
+            text_blocks = [block["text"] for block in content_blocks if block.get("type") == "text"]
+            tool_uses = [
+                AIToolUse(id=block["id"], name=block["name"], input=block["input"])
+                for block in content_blocks
+                if block.get("type") == "tool_use"
+            ]
+            usage = body.get("usage") or {}
+            return AIToolCompletionResponse(
+                text="".join(text_blocks) if text_blocks else None,
+                tool_uses=tool_uses,
+                model=body.get("model", self._model),
+                input_tokens=usage.get("input_tokens", 0),
+                output_tokens=usage.get("output_tokens", 0),
+            )
+        except (KeyError, TypeError) as exc:
+            raise AIProviderResponseError(f"Unexpected Anthropic response shape: {exc}") from exc
+
 
 def complete_with_retries(
     provider: AIProvider,
@@ -219,6 +331,37 @@ def complete_with_retries(
     while True:
         try:
             return provider.complete(request, timeout_seconds=timeout_seconds)
+        except _RETRYABLE_ERRORS:
+            if attempt >= max_retries:
+                raise
+            sleep_fn(backoff_seconds * (2**attempt))
+            attempt += 1
+
+
+def complete_with_tools_with_retries(
+    provider: AIProvider,
+    messages: list[dict],
+    *,
+    system_prompt: str,
+    tools: list[AIToolDefinition],
+    max_tokens: int,
+    timeout_seconds: float = 30.0,
+    max_retries: int = 2,
+    backoff_seconds: float = 1.0,
+    sleep_fn=time.sleep,
+) -> AIToolCompletionResponse:
+    """Same timeout/retry rules as `complete_with_retries` above, for
+    the tool-use call shape (FD-061) - kept as its own function rather
+    than generalizing `complete_with_retries` to accept either shape,
+    since the two request shapes (`AICompletionRequest` vs. a raw
+    `messages` list + `tools`) aren't worth unifying behind one
+    signature for the sake of avoiding this one small duplicate loop."""
+    attempt = 0
+    while True:
+        try:
+            return provider.complete_with_tools(
+                messages, system_prompt=system_prompt, tools=tools, max_tokens=max_tokens, timeout_seconds=timeout_seconds
+            )
         except _RETRYABLE_ERRORS:
             if attempt >= max_retries:
                 raise

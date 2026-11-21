@@ -253,9 +253,21 @@ directly — period always shown, missing data called out only when the
 AI actually named a gap, recommendations rendered in their own
 visually distinct, "ADVISORY"-labeled section, never mixed with the
 four factual ones; verified against the real backend in a real
-browser, including the cross-role 403 case) is Done, completing Epic
-E08's weekly-report pipeline (only FD-061's conversational assistant
-remains).
+browser, including the cross-role 403 case) is Done. FD-061
+(conversational AI assistant — `POST .../ai-assistant/ask`, FR-041;
+four read-only tools wrapping FD-051's own already-reviewed analytics
+functions, each enforcing the real caller's own role/scope internally
+rather than a blanket route-level gate, so a denied tool call becomes
+a plain "I can't access that" in the assistant's own answer, never a
+403 for the whole feature; `app/ai/providers.py` gained
+`complete_with_tools` as an additive capability alongside the original
+single-turn `complete`, kept backward-compatible via a concrete
+`NotImplementedError`-default method rather than a second abstract
+one; a bounded 5-round tool-use loop, stateless — one question in, one
+answer out, no persisted conversation history; zero write tools at
+all, per this task's own "no unapproved writes"; backend only, no
+frontend chat widget, same precedent as every gap in this backlog)
+is Done, completing Epic E08 (AI Business Assistant) in full.
 
 ## Local development infrastructure
 
