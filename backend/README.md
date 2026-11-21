@@ -315,3 +315,40 @@ violations/"row not found" errors in otherwise-correct, unrelated
 tests - not a bug in the code under test. Running a handful of test
 files together is fine; it only showed up once the suite grew large
 enough to approach the connection limit.
+
+This per-test isolation is all within a single pytest process, though -
+every test still talks to the same physical Postgres database
+(`FLASK_ENV=testing`'s own `DATABASE_URL`), just via a fresh
+connection each time. Running two separate `pytest` invocations
+*concurrently* against that same database (e.g. one in the foreground,
+one backgrounded) is not supported: one process's test data can be
+deleted or overwritten mid-flight by another's, producing the exact
+same symptoms (`NoResultFound`, stale-row 404s) for reasons that have
+nothing to do with the code under test. Run one `pytest` process at a
+time against the test database.
+
+### Integration tests (FD-062)
+
+`tests/integration/` holds cross-module, end-to-end tests driven
+entirely through real HTTP routes (never a direct ORM insert, except
+reading an invitation token out of a monkeypatched "sent" email) -
+every other test file in this suite is deliberately scoped to one
+module at a time, so this is the one place that would catch a bug only
+visible when several modules interact with the same real data:
+
+- `test_full_workflow.py` - the canonical customer -> request -> task
+  -> invoice -> payment -> AI-report workflow (spec Section 36),
+  exercised start to finish by five different roles.
+- `test_tenant_isolation.py` - two full organizations' workflows run
+  side by side with deliberately overlapping data, checking every
+  list/aggregate endpoint (not just single-resource 404s, which every
+  module's own tests already cover) for cross-tenant leakage.
+- `test_financial_transactions.py` - several invoices in different
+  terminal states (paid, partially paid, cancelled, overdue) at once,
+  reconciled exactly against both `GET .../invoices/financial-summary`
+  and `GET .../analytics/overview` - two independent queries over the
+  same money that could otherwise silently drift apart.
+- `test_analytics_reconciliation.py` - the org-wide overview,
+  per-department, and per-employee analytics views, each its own
+  independent query, cross-checked to add up to each other over the
+  same real tasks/requests.
