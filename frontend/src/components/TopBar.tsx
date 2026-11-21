@@ -24,7 +24,16 @@ const ROLE_LABELS: Record<string, string> = {
 // implemented (spec Section 12.1) - a toggle with nothing to toggle
 // would be exactly the placeholder UI this project's rules forbid.
 // Both are documented gaps, not oversights.
-export function TopBar() {
+interface TopBarProps {
+  // FD-063 (NFR-011): present only on the dashboard shell, which is
+  // the one place a mobile nav toggle makes sense - omitted (and so
+  // never rendered, via the `md:hidden` button below) by any caller
+  // that doesn't need it, same convention `activeMembership &&` above
+  // already uses for conditionally-relevant TopBar content.
+  onMenuClick?: () => void;
+}
+
+export function TopBar({ onMenuClick }: TopBarProps = {}) {
   const { user, logout } = useAuth();
   const { activeMembership } = useOrganization();
   const organizationId = activeMembership?.organization.id ?? "";
@@ -39,9 +48,21 @@ export function TopBar() {
   const unreadCount = unreadCountData?.meta.total ?? 0;
 
   return (
-    <header className="flex items-center justify-between gap-4 border-b border-border bg-card px-6 py-3">
-      <div>{activeMembership && <OrganizationSwitcher />}</div>
-      <div className="flex items-center gap-4">
+    <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border bg-card px-4 py-3 md:flex-nowrap md:px-6">
+      <div className="flex items-center gap-3">
+        {onMenuClick && (
+          <button
+            type="button"
+            aria-label="Open navigation menu"
+            className="rounded-md border border-border px-2 py-1.5 text-sm md:hidden"
+            onClick={onMenuClick}
+          >
+            ☰
+          </button>
+        )}
+        {activeMembership && <OrganizationSwitcher />}
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
         {activeMembership && (
           <Link to="/notifications" className="text-sm font-medium text-primary hover:underline">
             Notifications{unreadCount > 0 ? ` (${unreadCount})` : ""}

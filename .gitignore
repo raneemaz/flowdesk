@@ -31,6 +31,12 @@ build/
 *.local
 *.tsbuildinfo
 
+# ---- Playwright (FD-063) ----
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/playwright/.cache/
+
 # ---- Local databases ----
 *.sqlite3
 *.sqlite

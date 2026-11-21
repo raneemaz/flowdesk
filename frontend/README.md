@@ -836,3 +836,56 @@ npm run typecheck
 npm run test
 npm run build
 ```
+
+## Integration & E2E testing (FD-063)
+
+`npm run test` (Vitest + React Testing Library) covers every
+`src/**/*.test.tsx` file, including `src/integration/*.test.tsx` -
+cross-module tests that mount the real `<App/>` (real
+AuthContext/OrganizationContext/router/Sidebar/TopBar), not a single
+page in isolation, with only `api/*` calls mocked. That's the one
+thing this codebase's many per-page/per-component tests can't catch: a
+wiring bug between modules, or a role with no sidebar link for a page
+still reaching it by direct URL and getting a crash instead of the
+backend's real 403 (see `src/integration/testHelpers.tsx`'s own header
+comment, and `roleRestrictionEmployeeInvoices.test.tsx`'s).
+
+```bash
+npx playwright test     # or: npm run test:e2e
+```
+
+Real-browser, real-backend critical-journey and responsiveness tests
+(`e2e/*.spec.ts`), using the machine's own installed Chrome
+(`channel: "chrome"` in `playwright.config.ts` - this repo doesn't
+vendor a Playwright browser download) against a live Vite dev server
+and a live backend. Needs both running first (or let Playwright's own
+`webServer` config start them):
+
+```bash
+# from frontend/, with the backend's own venv already set up (see
+# backend/README.md) and a real Postgres test database reachable:
+npm run dev -- --port 5173                                              # terminal 1
+cd ../backend && FLASK_ENV=testing ./.venv/Scripts/python.exe -m flask --app wsgi run   # terminal 2
+cd ../frontend && npx playwright test                                   # terminal 3
+```
+
+`FLASK_ENV=testing` picks `TestingConfig` (`backend/app/config.py`),
+which already substitutes `fakeredis` for session storage - the same
+"no real Redis in this dev environment" gap `backend/README.md`
+documents elsewhere, so no extra setup is needed just to run these.
+Every spec creates its own user/organization with a unique,
+timestamp-based email (`e2e/helpers.ts`) rather than relying on a
+clean/seeded database, so re-running against a non-empty test database
+is always safe - and since these tests go through the exact same
+`_clean` fixtures' tables every `backend/tests/integration/*.py` test
+already wipes, any rows they leave behind are cleared by the next
+backend pytest run regardless.
+
+`e2e/responsive.spec.ts` is the one layer that can actually catch an
+NFR-011 ("responsive across viewport sizes") regression - Vitest/RTL's
+jsdom environment has no real layout engine, so a CSS media query or a
+flex box genuinely overflowing at a narrow width is invisible to every
+other test file in this codebase. It's how `DashboardLayout`/
+`Sidebar`/`TopBar`'s mobile off-canvas nav (FD-063) was itself found
+necessary and verified: the dashboard overflowed horizontally on a
+375px viewport before that change, with no other test able to detect it.

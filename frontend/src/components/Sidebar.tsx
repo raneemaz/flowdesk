@@ -39,33 +39,59 @@ function navItems(role: MembershipRole): NavItem[] {
   return items;
 }
 
+interface SidebarProps {
+  // Below the `md` breakpoint this is an off-canvas panel (FD-063,
+  // NFR-011) rather than an always-visible column - `open`/`onClose`
+  // are DashboardLayout's own toggle state, irrelevant at `md` and
+  // above where the panel is always shown via `md:translate-x-0`
+  // regardless of either prop.
+  open?: boolean;
+  onClose?: () => void;
+}
+
 // Navigation is permission-aware, never the security boundary (spec
 // Section 12.2/32) - every link below just reuses this codebase's
 // existing UI-only `can*` hint functions, the same ones HomePage's own
 // nav used before this task replaced it with this persistent sidebar.
-export function Sidebar() {
+export function Sidebar({ open = false, onClose }: SidebarProps = {}) {
   const { activeMembership } = useOrganization();
   if (!activeMembership) return null;
 
   return (
-    <nav
-      aria-label="Primary"
-      className="flex w-56 flex-shrink-0 flex-col gap-1 bg-sidebar px-3 py-6 text-sidebar-foreground"
-    >
-      {navItems(activeMembership.role).map((item) => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          end={item.to === "/"}
-          className={({ isActive }) =>
-            `rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-              isActive ? "bg-primary text-primary-foreground" : "text-sidebar-foreground/80 hover:bg-white/10"
-            }`
-          }
-        >
-          {item.label}
-        </NavLink>
-      ))}
-    </nav>
+    <>
+      {/* The backdrop only ever renders (and is only ever reachable by
+          a screen reader or focus) while the panel is open on a narrow
+          viewport - `md:hidden` keeps it inert at `md` and above, where
+          the panel is static, not an overlay. */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+      <nav
+        aria-label="Primary"
+        className={`fixed inset-y-0 left-0 z-50 flex w-56 flex-shrink-0 flex-col gap-1 overflow-y-auto bg-sidebar px-3 py-6 text-sidebar-foreground transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        {navItems(activeMembership.role).map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.to === "/"}
+            onClick={onClose}
+            className={({ isActive }) =>
+              `rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                isActive ? "bg-primary text-primary-foreground" : "text-sidebar-foreground/80 hover:bg-white/10"
+              }`
+            }
+          >
+            {item.label}
+          </NavLink>
+        ))}
+      </nav>
+    </>
   );
 }
