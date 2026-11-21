@@ -13,7 +13,7 @@ same convention as test_full_workflow.py."""
 
 import json as json_module
 import re
-from datetime import date
+from datetime import datetime, timezone
 
 from app.ai.providers import AICompletionResponse, AIProvider
 from app.email import client as email_client
@@ -91,7 +91,9 @@ def _create_org(client, csrf_token, name):
     ]
 
 
-TODAY = date.today().isoformat()
+# UTC, not the OS's own local date - see test_full_workflow.py's own
+# comment on the identical `TODAY` constant for why.
+TODAY = datetime.now(timezone.utc).date().isoformat()
 
 
 def _run_mini_workflow(client, app, sent_emails, *, owner_email, employee_email, org_name, title_prefix, amount):

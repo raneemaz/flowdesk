@@ -23,6 +23,30 @@ def test_production_requires_database_url(monkeypatch):
         create_app("production")
 
 
+def test_production_requires_smtp_host(monkeypatch):
+    monkeypatch.setenv("FLASK_SECRET_KEY", "a-real-production-secret")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+
+    with pytest.raises(RuntimeError):
+        create_app("production")
+
+
+def test_production_requires_redis_url(monkeypatch):
+    # FD-064: sessions/rate limiting are required for the app to
+    # function at all (unlike ANTHROPIC_API_KEY, an optional feature
+    # that fails gracefully per-request) - REDIS_URL silently
+    # defaulting to localhost:6379 would otherwise fail confusingly at
+    # first login rather than at startup.
+    monkeypatch.setenv("FLASK_SECRET_KEY", "a-real-production-secret")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.delenv("REDIS_URL", raising=False)
+
+    with pytest.raises(RuntimeError):
+        create_app("production")
+
+
 def test_development_config_has_debug_enabled():
     app = create_app("development")
 

@@ -5,11 +5,20 @@ from app.auth.decorators import csrf_protect, login_required
 from app.auth.schemas import LoginRequest, RegisterRequest
 from app.auth.service import authenticate_user, create_session, destroy_session, register_user
 from app.errors import APIError, validation_error_details
+from app.extensions import limiter
 
 auth_bp = Blueprint("auth", __name__)
 
 
+# FD-064 (Section 13's "auth rate limiting" item). Per-IP (app.extensions's
+# own `key_func=get_remote_address`), not per-account - these two routes
+# are the only ones in this app an unauthenticated caller can hit
+# repeatedly for free, so they're the only ones that need it: register
+# (signup spam) and login (credential brute-forcing). Limits are
+# deliberately generous enough that no genuine user ever notices them in
+# normal use, while still bounding an automated attempt to a trickle.
 @auth_bp.route("/auth/register", methods=["POST"])
+@limiter.limit("5 per hour")
 def post_register():
     payload = request.get_json(silent=True)
     if payload is None:
@@ -36,6 +45,7 @@ def post_register():
 
 
 @auth_bp.route("/auth/login", methods=["POST"])
+@limiter.limit("10 per minute")
 def post_login():
     payload = request.get_json(silent=True)
     if payload is None:

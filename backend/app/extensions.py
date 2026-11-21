@@ -1,4 +1,6 @@
 """Shared Flask extension instances, initialized against the app in create_app()."""
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_migrate import Migrate
 from flask_session import Session
 from flask_sqlalchemy import SQLAlchemy
@@ -17,3 +19,14 @@ NAMING_CONVENTION = {
 db = SQLAlchemy(metadata=MetaData(naming_convention=NAMING_CONVENTION))
 migrate = Migrate()
 sess = Session()
+
+# FD-064 (Section 13's "auth rate limiting" item). Per-IP, backed by the
+# same Redis instance already used for sessions (RATELIMIT_STORAGE_URI,
+# set per-config in app/config.py) rather than Limiter's own in-memory
+# default - an in-memory store would reset every limit on every worker
+# process restart and never share counts across multiple app workers,
+# making the limit trivially bypassable in any real multi-process
+# deployment. No default limit is applied here (`default_limits=[]`,
+# implicit) - only the specific auth routes that opt in via `@limiter.limit(...)`
+# are throttled, never a blanket limit on every route.
+limiter = Limiter(key_func=get_remote_address)

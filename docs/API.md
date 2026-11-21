@@ -119,6 +119,9 @@ version:
   not just at login — a session created while active stops working
   immediately once the account is suspended, not only on the next login
   attempt.
+- `POST /auth/login` and `POST /auth/register` are rate-limited per IP
+  (FD-064, Section 13's security checklist) — 10/minute and 5/hour
+  respectively — returning `429 TOO_MANY_REQUESTS` once exceeded.
 
 **Registration (FD-009) does not start a session.** `POST /auth/register`
 only creates the `User` row and returns it; the caller must then call

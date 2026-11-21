@@ -23,7 +23,7 @@ this test creates both as independent records tied together only by
 organization/customer, exactly as a real user would."""
 
 import re
-from datetime import date
+from datetime import datetime, timezone
 
 from app.email import client as email_client
 from app.extensions import db
@@ -145,7 +145,15 @@ SUPPORT = "support@flowdesk-integration.example.com"
 # date for the explicit payment_date/issue_date, and a one-day period
 # bounding it, keeps the analytics/financial-summary/AI-report windows
 # consistent with what the server itself actually recorded.
-TODAY = date.today().isoformat()
+#
+# UTC, not the OS's own local date (`date.today()`) - every test org
+# here defaults to `timezone="UTC"`, and the server stamps every
+# timestamp (TaskHistory.created_at, etc.) in UTC too, so the two can
+# disagree on which calendar day it is for a few hours around local
+# midnight depending on the machine's own timezone offset (same
+# clock-boundary bug `_today_utc()` fixed in test_invoices_overdue.py/
+# test_invoices_financial_summary.py).
+TODAY = datetime.now(timezone.utc).date().isoformat()
 
 
 def test_the_full_customer_to_request_to_task_to_invoice_to_payment_workflow(client, app, sent_emails):

@@ -213,6 +213,80 @@ last-resort catch-all so this class of failure still returns the hybrid
 envelope. Regression-tested in `tests/test_errors.py` via a deliberately
 failing `after_request` hook (general mechanism, not Redis-specific).
 
+## Security & performance review (FD-064)
+
+A whole-codebase pass against Section 13's NFR-001–015 and security
+checklist, after all backend/frontend functionality and integration
+testing (FD-062/FD-063) were in place - every review before this one
+was scoped to a single task's own diff.
+
+**Found and fixed: auth rate limiting was entirely missing.**
+`/auth/login` and `/auth/register` could be hit an unbounded number of
+times per second from a single IP - a real, unthrottled credential-
+stuffing/signup-spam vector, and the one item Section 13's security
+checklist explicitly names ("auth rate limiting") that nothing in the
+codebase actually implemented before this task. Fixed with
+Flask-Limiter (`app/extensions.py`'s `limiter`, Redis-backed in dev/
+production via `RATELIMIT_STORAGE_URI`, sharing the same Redis
+instance sessions already use): `10 per minute` on login, `5 per hour`
+on register, both per-IP. Disabled by default in tests
+(`RATELIMIT_ENABLED` read from the environment in `TestingConfig`,
+defaulting to `"false"`) so the existing suite's many repeated login/
+register calls never see a 429 they aren't testing for;
+`tests/test_auth_rate_limiting.py` enables it on its own, freshly
+created app to verify the 429 itself, the per-IP scoping, and that a
+different IP isn't throttled by another's attempts.
+
+**Found and fixed: `REDIS_URL` wasn't required at startup in
+production.** Unlike `ANTHROPIC_API_KEY` (an optional feature that
+fails gracefully per-request when unset), sessions and the rate
+limiter above are both required for the app to function at all -
+leaving `REDIS_URL` unset would silently default to
+`redis://localhost:6379/0` and fail confusingly at first login in
+production, rather than at startup like the existing
+`SECRET_KEY`/`DATABASE_URL`/`SMTP_HOST` checks. `app/__init__.py` now
+raises the same way for a missing `REDIS_URL` in production; see
+`tests/test_config.py::test_production_requires_redis_url`.
+
+**Also removed:** unused `S3_*` object-storage variables from
+`.env.example` - nothing in `app/` ever reads them (PDF generation,
+FD-045, renders on demand via WeasyPrint rather than persisting to
+storage); leaving them in the example file risked implying S3 setup
+is required when it never was.
+
+**Reviewed and confirmed clean** (`tenant-security-reviewer` and
+`financial-integrity-reviewer` subagents, full `app/` tree, not a
+diff): tenant isolation (every cross-tenant access scenario in
+Section 13's table, both as unit tests and the FD-062 integration
+suite), CSRF coverage on every state-changing route, 100% parameterized
+ORM calls (zero raw SQL with interpolated values anywhere), money
+handling (Decimal end-to-end, server-recomputed totals, idempotent/
+race-safe payments, a single rounding helper), and that every financial
+aggregate query (not just its route) filters by `organization_id`.
+
+**Known, non-blocking findings** (informational, not fixed - no live
+code path exercises any of these today):
+- No invoice correction/credit-note mechanism exists yet (spec Module 5
+  implies one); an issued invoice is permanently locked with no
+  in-product remedy for a mistake. A product decision for a future
+  task, not a defect in what FD-040–046 built.
+- No currency-conversion/single-currency-per-org enforcement in
+  financial aggregates - already the documented, deliberately
+  unresolved Section 35 open decision #5, not a new gap.
+- `app/analytics/service.py`'s `get_employee_performance`/
+  `get_department_analytics` issue several queries per employee/
+  department in a loop rather than one `GROUP BY` aggregate (classic
+  N+1 shape) - fine at the small-business employee counts this product
+  targets, worth revisiting if an org's headcount ever grows large.
+- No test exercises genuine concurrency on `record_payment`'s
+  `SELECT ... FOR UPDATE` overpayment guard (only sequential logic is
+  currently verified) - recommended before/after FD-065, not blocking it.
+- `can_assign_role` (`app/authz/service.py`) is unit-tested but has no
+  live route yet - no endpoint changes a member's role post-acceptance,
+  so the scenario it protects against can't currently be exploited by
+  anyone. Wire it in when that endpoint is eventually built, rather
+  than re-deriving the self-escalation check.
+
 ## API conventions & docs
 
 Full conventions (versioning, response/error/pagination envelopes, status

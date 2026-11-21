@@ -15,7 +15,7 @@ from app.departments.routes import departments_bp
 from app.docs.routes import build_swagger_ui_blueprint, docs_bp
 from app.employees.routes import employees_bp
 from app.errors import register_error_handlers
-from app.extensions import db, migrate, sess
+from app.extensions import db, limiter, migrate, sess
 from app.health.routes import health_bp
 from app.invitations.routes import invitations_bp
 from app.invoices.routes import invoices_bp
@@ -45,10 +45,20 @@ def create_app(config_name=None):
         raise RuntimeError("DATABASE_URL must be set in the environment for production.")
     if config_name == "production" and not app.config["SMTP_HOST"]:
         raise RuntimeError("SMTP_HOST must be set in the environment for production (invitation emails).")
+    # FD-064: unlike ANTHROPIC_API_KEY (an optional feature that fails
+    # gracefully per-request when unset), sessions and rate limiting
+    # are required for the app to function at all - REDIS_URL silently
+    # defaulting to localhost:6379 (app/config.py) would otherwise fail
+    # confusingly at first login/request in production rather than at
+    # startup, the same "fail fast with a clear message" the three
+    # checks above already give SECRET_KEY/DATABASE_URL/SMTP_HOST.
+    if config_name == "production" and not os.environ.get("REDIS_URL"):
+        raise RuntimeError("REDIS_URL must be set in the environment for production (sessions, rate limiting).")
 
     db.init_app(app)
     migrate.init_app(app, db)
     sess.init_app(app)
+    limiter.init_app(app)
 
     register_error_handlers(app)
     register_blueprints(app)

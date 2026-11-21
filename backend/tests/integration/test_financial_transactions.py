@@ -17,7 +17,7 @@ silently drifting apart.
 Driven entirely through real HTTP routes via the Flask test client,
 same convention as test_full_workflow.py."""
 
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.extensions import db
 from app.models import (
@@ -118,7 +118,9 @@ def _pay(client, csrf_token, org_id, invoice_id, *, amount, payment_date, idempo
     )
 
 
-TODAY = date.today()
+# UTC, not the OS's own local date - see test_full_workflow.py's own
+# comment on the identical `TODAY` constant for why.
+TODAY = datetime.now(timezone.utc).date()
 TODAY_ISO = TODAY.isoformat()
 YESTERDAY_ISO = (TODAY - timedelta(days=1)).isoformat()
 

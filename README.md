@@ -267,7 +267,33 @@ one; a bounded 5-round tool-use loop, stateless — one question in, one
 answer out, no persisted conversation history; zero write tools at
 all, per this task's own "no unapproved writes"; backend only, no
 frontend chat widget, same precedent as every gap in this backlog)
-is Done, completing Epic E08 (AI Business Assistant) in full.
+is Done, completing Epic E08 (AI Business Assistant) in full. FD-062
+(backend integration testing — four cross-module test files under
+`backend/tests/integration/`, driven through real HTTP routes: the
+canonical customer→request→task→invoice→payment→AI-report workflow;
+two organizations run side by side with deliberately overlapping data
+to catch cross-tenant leaks a single-resource 404 check can't; several
+invoices in different terminal states reconciled exactly across two
+independent financial/analytics endpoints; overview/department/
+employee analytics cross-checked against each other) is Done. FD-063
+(frontend integration & E2E testing — `frontend/src/integration/*`
+mounts the real App with only `api/*` mocked, catching wiring bugs a
+single-page test can't; `frontend/e2e/*` runs Playwright against a
+live frontend+backend using the machine's own installed Chrome rather
+than a bundled download; the mobile-viewport E2E test caught a real
+NFR-011 violation — the dashboard overflowed horizontally at 375px —
+fixed with an off-canvas sidebar below the `md` breakpoint) is Done.
+FD-064 (security & performance review — a whole-codebase pass, not a
+diff, via the tenant-security-reviewer and financial-integrity-reviewer
+subagents: found and fixed that auth rate limiting, named explicitly in
+Section 13's security checklist, was entirely unimplemented, now
+10/minute on login and 5/hour on register per IP via Flask-Limiter;
+found and fixed that `REDIS_URL` wasn't required at production startup
+despite sessions/rate-limiting depending on it; everything else —
+tenant isolation, CSRF coverage, parameterized-ORM-only SQL, money
+handling — reviewed clean; see `backend/README.md`'s own section for
+the full findings, including non-blocking ones left for later) is Done,
+completing Epic E09 (Integration, QA & Deployment) except for FD-065.
 
 ## Local development infrastructure
 

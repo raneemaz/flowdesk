@@ -55,6 +55,14 @@ class Config:
         # the default to true per NFR-002 (all production traffic is HTTPS).
         self.SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
 
+        # Auth rate limiting (FD-064, Section 13's security checklist).
+        # Shares the same Redis instance as sessions above rather than
+        # Flask-Limiter's own in-memory default, which would reset on
+        # every worker restart and not share counts across workers -
+        # trivially bypassable in any real multi-process deployment.
+        self.RATELIMIT_STORAGE_URI = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        self.RATELIMIT_ENABLED = True
+
         # Invitation email delivery (FD-016), per Section 35 open
         # decision #4: SMTP rather than a vendor SDK, so dev and
         # production run the exact same code path (app/email/client.py)
@@ -129,6 +137,27 @@ class TestingConfig(Config):
         import fakeredis
 
         self.SESSION_REDIS = fakeredis.FakeStrictRedis()
+
+        # Same "no real Redis in this dev environment" gap applies to
+        # the rate limiter's storage - but unlike sessions, the limiter
+        # is simply OFF for the whole suite by default (every other
+        # test that hits /auth/login or /auth/register repeatedly would
+        # otherwise start getting 429s it isn't testing for). The one
+        # or two tests that specifically assert on rate-limiting behavior
+        # flip `app.config["RATELIMIT_ENABLED"] = True` on their own,
+        # already-isolated fresh app - Flask-Limiter checks this config
+        # value per-request, not just at init time, so that works.
+        # `memory://` (not fakeredis) is Flask-Limiter's own built-in
+        # in-process backend - no Redis client object involved, perfect
+        # for one isolated test's own fresh counters. Flask-Limiter
+        # reads RATELIMIT_ENABLED once, at `limiter.init_app(app)`
+        # inside create_app() - skipping its own storage/hook setup
+        # entirely when disabled - so a test that wants it on must set
+        # this env var (os.environ, via monkeypatch) BEFORE calling
+        # create_app("testing") itself; flipping app.config afterward
+        # has no effect (tests/test_auth_rate_limiting.py).
+        self.RATELIMIT_ENABLED = os.environ.get("RATELIMIT_ENABLED", "false").lower() == "true"
+        self.RATELIMIT_STORAGE_URI = "memory://"
 
         # Force the dev-log fallback regardless of a real SMTP_HOST in
         # .env (set for local development use) - tests must never

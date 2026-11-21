@@ -16,7 +16,7 @@ including the real invitation/accept flow (FD-016), same convention as
 test_full_workflow.py."""
 
 import re
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.email import client as email_client
 from app.extensions import db
@@ -135,7 +135,9 @@ OWNER = "owner@flowdesk-analytics.example.com"
 EMPLOYEE_1 = "employee1@flowdesk-analytics.example.com"
 EMPLOYEE_2 = "employee2@flowdesk-analytics.example.com"
 
-TODAY = date.today()
+# UTC, not the OS's own local date - see test_full_workflow.py's own
+# comment on the identical `TODAY` constant for why.
+TODAY = datetime.now(timezone.utc).date()
 TODAY_ISO = TODAY.isoformat()
 YESTERDAY_ISO = (TODAY - timedelta(days=1)).isoformat()
 NEXT_YEAR_ISO = (TODAY + timedelta(days=365)).isoformat()
