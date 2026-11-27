@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+
 
 import { getDepartmentAnalytics, getEmployeeAnalytics, getFinancialAnalytics, getOverviewAnalytics } from "@/api/analytics";
 import { DepartmentComparisonChart, InvoiceDistributionChart, RevenueByDayChart } from "@/features/analytics/charts";
@@ -66,12 +66,9 @@ export function AnalyticsPage() {
   });
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8">
-      <div className="flex items-center justify-between">
+    <div className="flex max-w-7xl flex-col gap-6 px-6 py-8 lg:px-10">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <h1 className="text-2xl font-semibold">Analytics</h1>
-        <Link to="/" className="text-sm font-medium text-primary hover:underline">
-          Back to home
-        </Link>
       </div>
 
       <PeriodSelector value={periodValue} onChange={setPeriodValue} />
@@ -111,8 +108,8 @@ export function AnalyticsPage() {
           <p className="text-sm text-foreground/70">No employee data for this period.</p>
         )}
         {employeesQuery.data && employeesQuery.data.length > 0 && (
-          <div className="overflow-hidden rounded-md border border-border">
-            <table className="w-full text-left text-sm">
+          <div className="relative overflow-x-auto rounded-md border border-border">
+            <table className="w-full text-left text-sm [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
               <thead className="bg-card">
                 <tr>
                   <th className="px-4 py-2 font-medium">Name</th>

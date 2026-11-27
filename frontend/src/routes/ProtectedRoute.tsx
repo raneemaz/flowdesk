@@ -21,6 +21,9 @@ export function ProtectedRoute() {
   }
 
   if (status === "unauthenticated") {
+    // A signed-out visit to the front door shows the public landing page;
+    // any deeper link goes to login and comes back afterwards.
+    if (location.pathname === "/") return <Navigate to="/welcome" replace />;
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 

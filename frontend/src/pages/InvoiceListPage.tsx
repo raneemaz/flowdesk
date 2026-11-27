@@ -83,13 +83,10 @@ export function InvoiceListPage() {
   };
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground">
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
-        <div className="flex items-center justify-between">
+    <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="flex max-w-7xl flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <h1 className="text-2xl font-semibold">Invoices</h1>
-          <Link to="/" className="text-sm font-medium text-primary hover:underline">
-            Back to home
-          </Link>
         </div>
 
         {canSeeFinancials && summary && (
@@ -109,7 +106,7 @@ export function InvoiceListPage() {
           </div>
         )}
 
-        <form className="flex flex-wrap items-end gap-3 rounded-md border border-border bg-card p-4" onSubmit={applyFilters}>
+        <form className="grid grid-cols-1 gap-3 rounded-md border border-border bg-card p-4 sm:flex sm:flex-wrap sm:items-end" onSubmit={applyFilters}>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="status-filter">Status</Label>
             <Select
@@ -179,8 +176,8 @@ export function InvoiceListPage() {
         )}
 
         {!isPending && !isError && invoices.length > 0 && (
-          <div className="overflow-hidden rounded-md border border-border">
-            <table className="w-full text-left text-sm">
+          <div className="relative overflow-x-auto rounded-md border border-border">
+            <table className="w-full text-left text-sm [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
               <thead className="bg-card">
                 <tr>
                   <th className="px-4 py-2 font-medium">Number</th>
@@ -231,14 +228,14 @@ export function InvoiceListPage() {
           </div>
         )}
       </div>
-    </main>
+    </div>
   );
 }
 
 function SummaryStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs font-medium uppercase tracking-wide text-foreground/50">{label}</span>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <span className="text-lg font-semibold">{value}</span>
     </div>
   );

@@ -15,7 +15,7 @@ from app.departments.routes import departments_bp
 from app.docs.routes import build_swagger_ui_blueprint, docs_bp
 from app.employees.routes import employees_bp
 from app.errors import register_error_handlers
-from app.extensions import db, limiter, migrate, sess
+from app.extensions import cors, db, limiter, migrate, sess
 from app.health.routes import health_bp
 from app.invitations.routes import invitations_bp
 from app.invoices.routes import invoices_bp
@@ -54,11 +54,24 @@ def create_app(config_name=None):
     # checks above already give SECRET_KEY/DATABASE_URL/SMTP_HOST.
     if config_name == "production" and not os.environ.get("REDIS_URL"):
         raise RuntimeError("REDIS_URL must be set in the environment for production (sessions, rate limiting).")
+    # FD-065: the dev default (localhost:5173) would otherwise silently
+    # become production's own CORS allow-list, blocking the real
+    # frontend origin entirely rather than failing at startup with a
+    # clear message.
+    if config_name == "production" and not os.environ.get("FRONTEND_ORIGIN"):
+        raise RuntimeError("FRONTEND_ORIGIN must be set in the environment for production (CORS).")
 
     db.init_app(app)
     migrate.init_app(app, db)
     sess.init_app(app)
     limiter.init_app(app)
+    cors.init_app(
+        app,
+        resources={f"{API_PREFIX}/*": {"origins": app.config["FRONTEND_URL"]}},
+        supports_credentials=True,
+        allow_headers=["Content-Type", "X-CSRF-Token"],
+        methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    )
 
     register_error_handlers(app)
     register_blueprints(app)

@@ -111,6 +111,13 @@ class Config:
         # ANTHROPIC_API_KEY, there is no startup requirement for them
         # here; Celery only actually connects when a worker/beat
         # process starts.
+        # Cloudflare Turnstile on register/login (app/auth/turnstile.py).
+        # Empty secret = check disabled; set it together with the
+        # frontend's VITE_TURNSTILE_SITE_KEY. TURNSTILE_HOSTNAMES is the
+        # comma-separated list of frontend hostnames a token may come from.
+        self.TURNSTILE_SECRET = os.environ.get("TURNSTILE_SECRET", "")
+        self.TURNSTILE_HOSTNAMES = os.environ.get("TURNSTILE_HOSTNAMES", "")
+
         self.CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
         self.CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 
@@ -164,6 +171,11 @@ class TestingConfig(Config):
         # attempt a real network send. app.email.client.send_email logs
         # instead of connecting when SMTP_HOST is empty.
         self.SMTP_HOST = ""
+
+        # Bot check off for the suite (tests that cover it switch it on
+        # for their own app); never reach Cloudflare from a test run.
+        self.TURNSTILE_SECRET = ""
+        self.TURNSTILE_HOSTNAMES = ""
 
 
 class ProductionConfig(Config):

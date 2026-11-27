@@ -287,6 +287,108 @@ code path exercises any of these today):
   anyone. Wire it in when that endpoint is eventually built, rather
   than re-deriving the self-escalation check.
 
+## Deployment (FD-065)
+
+Per Section 17/35 (open decision #13: "production hosting choices,
+domains, backup retention, and recovery objectives" — free Render/
+Vercel subdomains chosen, no custom domain). Render ↔ Vercel means the
+frontend and backend are genuinely different origins in production,
+unlike local dev's same-origin Vite proxy — every item below exists
+because of that one fact.
+
+### CORS and cross-site cookies
+
+`app/extensions.py`'s `cors` (Flask-Cors) allows exactly
+`FRONTEND_URL`'s origin (`FRONTEND_ORIGIN` env var — the same variable
+already used to build invitation email links) on `/api/v1/*`, with
+`supports_credentials=True` so the session cookie can actually be
+sent/received cross-site. That alone isn't enough, though — a
+cross-site cookie also needs:
+
+- `SESSION_COOKIE_SAMESITE=None` (defaults to `Lax`, which blocks a
+  cross-site cookie outright — this must be set explicitly in Render's
+  environment variables, not left at the local-dev default)
+- `SESSION_COOKIE_SECURE=true` (already the `ProductionConfig` default,
+  required alongside `SameSite=None` or browsers reject the cookie)
+- `FRONTEND_ORIGIN` set to the real `https://<project>.vercel.app` URL
+  once it exists (startup raises `RuntimeError` if unset in production —
+  the dev default would otherwise silently become the CORS allow-list)
+
+### Backend (Render)
+
+- **Runtime**: Docker (`backend/Dockerfile`) — gunicorn, not Flask's
+  own dev server; includes WeasyPrint's system GTK3 libraries so
+  invoice PDF generation works in production without extra steps. Not
+  verified by a local `docker build` (no Docker in this project's own
+  dev environment) — verified for real against Render's own build logs
+  on first deploy.
+- **Pre-deploy command**: `flask --app wsgi db upgrade` — runs once per
+  deploy, not once per instance/worker (unlike baking it into the
+  Dockerfile's own `CMD`, which would make every instance race to
+  migrate simultaneously if this service is ever scaled beyond one).
+- **Health check path**: `/api/v1/health`.
+- **Required environment variables**: every one of `.env.example`'s
+  non-empty-by-convention values, plus the production-only ones
+  `app/__init__.py` enforces at startup (`FLASK_SECRET_KEY`,
+  `DATABASE_URL`, `SMTP_HOST`, `REDIS_URL`, `FRONTEND_ORIGIN`) and the
+  two SESSION_COOKIE_* overrides above. `FLASK_ENV=production` itself
+  selects `ProductionConfig`.
+- **Postgres / Redis**: both as separate Render managed services (or
+  equivalent) — see the backup caveat below for Postgres specifically
+  before choosing a plan. **Create the web service, Postgres and Redis
+  in the same Render region**, and connect with their *internal* URLs:
+  every page load makes several queries plus session/rate-limit lookups,
+  so a cross-region round trip (tens of ms each) would multiply into
+  visibly slower responses.
+
+### Frontend (Vercel)
+
+- Root directory `frontend/`, build command `npm run build`, output
+  directory `dist/`.
+- `VITE_API_BASE_URL` set to the Render backend's own `https://` URL
+  (e.g. `https://flowdesk-api.onrender.com/api/v1`) — unlike local dev,
+  there's no Vite proxy in a static production build, so this must be
+  an absolute URL (see `src/api/client.ts`'s own comment on why the
+  proxy exists at all).
+- `frontend/vercel.json` does two things Vercel won't do on its own for
+  a Vite single-page app: rewrites every path to `index.html` (so
+  refreshing or opening a link like `/tasks/calendar` doesn't 404), and
+  serves `/assets/*` — content-hashed, so a changed file always gets a
+  new name — with a one-year `immutable` cache, so returning visitors
+  don't re-check each file.
+
+### CI (GitHub Actions)
+
+`.github/workflows/ci.yml` runs the backend pytest suite (against a
+real Postgres service container, migrated first) and the frontend
+typecheck/test/build on every push and pull request — a merge gate,
+not the deploy mechanism itself; Render and Vercel each deploy
+automatically from their own connected GitHub integration regardless
+of this workflow's result. Not yet verified by a real run (no GitHub
+remote existed before this task) — verified against the first real push.
+
+### Backups, restore, and rollback
+
+- **Render's managed Postgres**: automated daily backups require a
+  paid plan; the free tier has no durable backup guarantee and
+  **expires after a fixed period** — read Render's own current Postgres
+  plan page before relying on the free tier for anything beyond a
+  short-lived demo.
+- **Manual backup/restore either way**: `backend/scripts/backup_db.sh`
+  (`pg_dump`, gzipped, timestamped) and `restore_db.sh` (confirms the
+  target connection string before overwriting anything). Run the
+  backup script on whatever cadence matches how much data loss would
+  be acceptable — there's no NFR-stated RPO/RTO for this project, so
+  daily is a reasonable default for a single-org demo, more frequent
+  for anything with real user data.
+- **Code rollback**: redeploy a previous commit from Render's own
+  dashboard (Render keeps every past deploy) — no separate tooling
+  needed.
+- **Migration rollback**: `flask --app wsgi db downgrade -1` (one step)
+  or `db downgrade <revision>` (to a specific one) — see the
+  Migrations section above for the enum-type gotcha to watch for on
+  any downgrade that drops a Postgres native enum.
+
 ## API conventions & docs
 
 Full conventions (versioning, response/error/pagination envelopes, status

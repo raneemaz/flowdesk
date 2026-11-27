@@ -149,6 +149,40 @@ describe("NotificationsPage", () => {
     await waitFor(() => expect(markReadSpy).toHaveBeenCalledWith("org-1", "n1", "csrf-abc"));
   });
 
+  it("shows a notification as read before the server answers", async () => {
+    mockAuthenticated();
+    vi.spyOn(notificationsApi, "listNotifications").mockResolvedValue({
+      notifications: [UNREAD_NOTIFICATION],
+      meta: { page: 1, per_page: 20, total: 1, total_pages: 1 },
+    });
+    // The server never answers within this test.
+    vi.spyOn(notificationsApi, "markNotificationRead").mockReturnValue(new Promise(() => {}));
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Mark read" }));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Mark read" })).not.toBeInTheDocument());
+  });
+
+  it("puts the notification back to unread if marking it read fails", async () => {
+    mockAuthenticated();
+    vi.spyOn(notificationsApi, "listNotifications").mockResolvedValue({
+      notifications: [UNREAD_NOTIFICATION],
+      meta: { page: 1, per_page: 20, total: 1, total_pages: 1 },
+    });
+    vi.spyOn(notificationsApi, "markNotificationRead").mockRejectedValue(new Error("offline"));
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Mark read" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not mark that notification read.");
+    expect(await screen.findByRole("button", { name: "Mark read" })).toBeInTheDocument();
+  });
+
   it("marks every notification read", async () => {
     mockAuthenticated();
     vi.spyOn(notificationsApi, "listNotifications").mockResolvedValue({

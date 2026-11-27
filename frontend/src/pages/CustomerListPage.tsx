@@ -7,6 +7,14 @@ import { Link } from "react-router-dom";
 import { ApiError } from "@/api/client";
 import { createCustomer, listCustomers } from "@/api/customers";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -109,28 +117,29 @@ export function CustomerListPage() {
   };
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground">
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
-        <div className="flex items-center justify-between">
+    <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="flex max-w-7xl flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <h1 className="text-2xl font-semibold">Customers</h1>
-          <Link to="/" className="text-sm font-medium text-primary hover:underline">
-            Back to home
-          </Link>
         </div>
 
-        <div>
-          {!isCreateOpen && (
-            <Button type="button" variant="outline" onClick={() => setIsCreateOpen(true)}>
+        <Dialog
+          open={isCreateOpen}
+          onOpenChange={(nextOpen) => {
+            setIsCreateOpen(nextOpen);
+            if (!nextOpen) setCreateError(null);
+          }}
+        >
+          <DialogTrigger asChild>
+            <Button type="button" variant="outline">
               + New customer
             </Button>
-          )}
-          {isCreateOpen && (
-            <form
-              className="flex flex-col gap-4 rounded-md border border-border bg-card p-6"
-              onSubmit={handleSubmit(onCreate)}
-              noValidate
-            >
-              <h2 className="text-lg font-medium">New customer</h2>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>New customer</DialogTitle>
+            </DialogHeader>
+            <form className="flex flex-col gap-4" onSubmit={handleSubmit(onCreate)} noValidate>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="new-name">Name</Label>
                 <Input id="new-name" aria-invalid={errors.name ? "true" : "false"} {...register("name")} />
@@ -163,19 +172,16 @@ export function CustomerListPage() {
                   {createError}
                 </p>
               )}
-              <div className="flex gap-3">
+              <DialogFooter>
                 <Button type="submit" disabled={isSubmitting}>
                   {isSubmitting ? "Creating…" : "Create customer"}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
-                  Cancel
-                </Button>
-              </div>
+              </DialogFooter>
             </form>
-          )}
-        </div>
+          </DialogContent>
+        </Dialog>
 
-        <form className="flex flex-wrap items-end gap-3 rounded-md border border-border bg-card p-4" onSubmit={applyFilters}>
+        <form className="grid grid-cols-1 gap-3 rounded-md border border-border bg-card p-4 sm:flex sm:flex-wrap sm:items-end" onSubmit={applyFilters}>
           <div className="flex min-w-[180px] flex-1 flex-col gap-1.5">
             <Label htmlFor="search">Search</Label>
             <Input
@@ -216,8 +222,8 @@ export function CustomerListPage() {
         )}
 
         {!isPending && !isError && customers.length > 0 && (
-          <div className="overflow-hidden rounded-md border border-border">
-            <table className="w-full text-left text-sm">
+          <div className="relative overflow-x-auto rounded-md border border-border">
+            <table className="w-full text-left text-sm [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
               <thead className="bg-card">
                 <tr>
                   <th className="px-4 py-2 font-medium">Name</th>
@@ -266,6 +272,6 @@ export function CustomerListPage() {
           </div>
         )}
       </div>
-    </main>
+    </div>
   );
 }

@@ -2,10 +2,11 @@ from flask import Blueprint, g, jsonify, request
 from pydantic import ValidationError
 
 from app.auth.decorators import csrf_protect, login_required
-from app.auth.schemas import LoginRequest, RegisterRequest
+from app.auth.schemas import ChangePasswordRequest, LoginRequest, RegisterRequest, UpdateProfileRequest
 from app.auth.service import authenticate_user, create_session, destroy_session, register_user
+from app.auth.turnstile import require_turnstile
 from app.errors import APIError, validation_error_details
-from app.extensions import limiter
+from app.extensions import db, limiter
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -23,6 +24,10 @@ def post_register():
     payload = request.get_json(silent=True)
     if payload is None:
         raise APIError("Request body must be valid JSON.", status_code=400, code="BAD_REQUEST")
+
+    # Bot check first, so automated sign-ups never reach validation or the
+    # database. The token is not part of the account data.
+    require_turnstile(payload.pop("turnstile_token", None) if isinstance(payload, dict) else None, "signup")
 
     try:
         data = RegisterRequest.model_validate(payload)
@@ -50,6 +55,8 @@ def post_login():
     payload = request.get_json(silent=True)
     if payload is None:
         raise APIError("Request body must be valid JSON.", status_code=400, code="BAD_REQUEST")
+
+    require_turnstile(payload.pop("turnstile_token", None) if isinstance(payload, dict) else None, "login")
 
     try:
         data = LoginRequest.model_validate(payload)
@@ -95,3 +102,53 @@ def get_me():
         "data": g.current_user.to_public_dict(),
     }
     return jsonify(body), 200
+
+
+@auth_bp.route("/auth/me", methods=["PATCH"])
+@login_required
+@csrf_protect
+def patch_me():
+    data = _validated(UpdateProfileRequest, request.get_json(silent=True))
+    if not data.name.strip():
+        raise APIError("Validation failed", status_code=422, code="VALIDATION_ERROR", details={"name": "Name is required."})
+    g.current_user.name = data.name  # the model's own validator trims it
+    db.session.commit()
+    return jsonify({"success": True, "message": "Profile updated", "data": g.current_user.to_public_dict()}), 200
+
+
+# Same per-IP throttle idea as login: a stolen session must not become an
+# unlimited oracle for guessing the account's current password.
+@auth_bp.route("/auth/change-password", methods=["POST"])
+@limiter.limit("10 per hour")
+@login_required
+@csrf_protect
+def post_change_password():
+    data = _validated(ChangePasswordRequest, request.get_json(silent=True))
+    if not g.current_user.verify_password(data.current_password):
+        raise APIError(
+            "Your current password is incorrect.",
+            status_code=400,
+            code="INVALID_CURRENT_PASSWORD",
+            details={"current_password": "Incorrect password."},
+        )
+    if data.new_password == data.current_password:
+        raise APIError(
+            "Validation failed",
+            status_code=422,
+            code="VALIDATION_ERROR",
+            details={"new_password": "Choose a password different from your current one."},
+        )
+    g.current_user.set_password(data.new_password)
+    db.session.commit()
+    return jsonify({"success": True, "message": "Password changed", "data": None}), 200
+
+
+def _validated(model, payload):
+    if payload is None:
+        raise APIError("Request body must be valid JSON.", status_code=400, code="BAD_REQUEST")
+    try:
+        return model.model_validate(payload)
+    except ValidationError as exc:
+        raise APIError(
+            "Validation failed", status_code=422, code="VALIDATION_ERROR", details=validation_error_details(exc)
+        )

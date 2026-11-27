@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -120,7 +120,7 @@ describe("RequestListPage", () => {
     expect(screen.queryByRole("button", { name: "+ New request" })).not.toBeInTheDocument();
   });
 
-  it("creates a request via the inline form", async () => {
+  it("creates a request from the New request dialog", async () => {
     mockAuthenticated("owner");
     vi.spyOn(customerRequestsApi, "listRequests").mockResolvedValue({
       requests: [],
@@ -139,12 +139,12 @@ describe("RequestListPage", () => {
 
     renderPage();
     await user.click(await screen.findByRole("button", { name: "+ New request" }));
-    // The create form's own "Customer" select and the filter bar's
-    // "Customer" select are both on screen once the form is open - the
-    // create form's is first in document order.
-    await user.selectOptions(screen.getAllByLabelText("Customer")[0], "c1");
-    await user.type(screen.getByLabelText("Title"), "New request");
-    await user.click(screen.getByRole("button", { name: "Create request" }));
+    // The form opens in a dialog, on top of the filter bar (which has its
+    // own "Customer" select) - so look inside the dialog.
+    const dialog = await screen.findByRole("dialog");
+    await user.selectOptions(within(dialog).getByLabelText("Customer"), "c1");
+    await user.type(within(dialog).getByLabelText("Title"), "New request");
+    await user.click(within(dialog).getByRole("button", { name: "Create request" }));
 
     await waitFor(() =>
       expect(createSpy).toHaveBeenCalledWith(

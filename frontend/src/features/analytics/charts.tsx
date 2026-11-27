@@ -39,12 +39,12 @@ export function RevenueByDayChart({ data }: { data: RevenueByDayEntry[] }) {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  draft: "var(--color-border)",
-  sent: "var(--color-secondary)",
+  draft: "var(--color-chart-neutral)",
+  sent: "var(--color-chart-in-progress)",
   partially_paid: "var(--color-warning)",
   paid: "var(--color-success)",
   overdue: "var(--color-destructive)",
-  cancelled: "var(--color-border)",
+  cancelled: "var(--color-chart-neutral)",
 };
 
 export function InvoiceDistributionChart({ distribution }: { distribution: Record<string, number> }) {
@@ -87,7 +87,7 @@ export function DepartmentComparisonChart({ departments }: { departments: Depart
         <XAxis dataKey="name" tick={{ fontSize: 12 }} />
         <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
         <Tooltip />
-        <Bar dataKey="active" name="Active" fill="var(--color-secondary)" />
+        <Bar dataKey="active" name="Active" fill="var(--color-chart-in-progress)" />
         <Bar dataKey="completed" name="Completed" fill="var(--color-success)" />
         <Bar dataKey="overdue" name="Overdue" fill="var(--color-destructive)" />
       </BarChart>

@@ -21,3 +21,19 @@ export function canManageEmployeeProfile(viewerRole: MembershipRole, targetRole:
 export function canManageDepartments(viewerRole: MembershipRole): boolean {
   return viewerRole === "owner" || viewerRole === "manager";
 }
+
+const ALL_ROLES: MembershipRole[] = ["owner", "manager", "employee", "accountant", "customer_support"];
+
+// Mirrors app/authz/service.py's can_invite_with_role exactly: Owner
+// may invite any role; Manager only the three MANAGER_ASSIGNABLE_ROLES
+// above (never a new Owner/Manager); everyone else may not invite at
+// all.
+export function canInviteEmployees(viewerRole: MembershipRole): boolean {
+  return viewerRole === "owner" || viewerRole === "manager";
+}
+
+export function invitableRoles(viewerRole: MembershipRole): MembershipRole[] {
+  if (viewerRole === "owner") return ALL_ROLES;
+  if (viewerRole === "manager") return [...MANAGER_ASSIGNABLE_ROLES];
+  return [];
+}

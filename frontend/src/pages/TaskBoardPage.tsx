@@ -62,13 +62,10 @@ export function TaskBoardPage() {
   };
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6">
-        <div className="flex items-center justify-between">
+    <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="flex max-w-7xl flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <h1 className="text-2xl font-semibold">Tasks</h1>
-          <Link to="/" className="text-sm font-medium text-primary hover:underline">
-            Back to home
-          </Link>
         </div>
 
         <TasksNav />
@@ -135,6 +132,6 @@ export function TaskBoardPage() {
           </div>
         )}
       </div>
-    </main>
+    </div>
   );
 }

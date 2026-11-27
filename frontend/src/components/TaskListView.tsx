@@ -1,24 +1,20 @@
 import { useState, type FormEvent } from "react";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
 import { listDepartments } from "@/api/departments";
 import { listEmployees } from "@/api/employees";
-import { createTask, listTasks } from "@/api/tasks";
+import { listTasks } from "@/api/tasks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { TasksNav } from "@/components/TasksNav";
-import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { PRIORITY_OPTIONS, STATUS_OPTIONS } from "@/features/tasks/constants";
 import { canManageTasks } from "@/features/tasks/permissions";
-import { createTaskSchema, type CreateTaskFormValues } from "@/features/tasks/schemas";
+import { CreateTaskDialog } from "@/features/tasks/CreateTaskDialog";
 import type { TaskPriority, TaskStatus } from "@/types/task";
 
 const PER_PAGE = 20;
@@ -56,17 +52,14 @@ export function TaskListView({
    * avoids a flash of "all tasks" before the lock applies. */
   lockedAssigneeLoading?: boolean;
 }) {
-  const { csrfToken } = useAuth();
   const { activeMembership } = useOrganization();
   const organizationId = activeMembership?.organization.id ?? "";
   const canManage = activeMembership ? canManageTasks(activeMembership.role) : false;
-  const queryClient = useQueryClient();
 
   const [draftFilters, setDraftFilters] = useState<Filters>(EMPTY_FILTERS);
   const [appliedFilters, setAppliedFilters] = useState<Filters>(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
 
   const { data: departments } = useQuery({
     queryKey: ["departments", organizationId],
@@ -113,135 +106,23 @@ export function TaskListView({
     setPage(1);
   };
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting },
-  } = useForm<CreateTaskFormValues>({
-    resolver: zodResolver(createTaskSchema),
-    defaultValues: { title: "", description: "", priority: "medium", department_id: "", start_date: "", due_date: "", estimated_hours: "" },
-  });
-
-  const onCreate = async (values: CreateTaskFormValues) => {
-    if (!csrfToken) {
-      setCreateError("Your session is missing a CSRF token - please log in again.");
-      return;
-    }
-    setCreateError(null);
-    try {
-      await createTask(
-        organizationId,
-        {
-          title: values.title,
-          description: values.description || undefined,
-          priority: values.priority,
-          department_id: values.department_id || undefined,
-          start_date: values.start_date || undefined,
-          due_date: values.due_date || undefined,
-          estimated_hours: values.estimated_hours || undefined,
-        },
-        csrfToken,
-      );
-      reset();
-      setIsCreateOpen(false);
-      await queryClient.invalidateQueries({ queryKey: ["tasks", organizationId] });
-    } catch (submitError) {
-      setCreateError(submitError instanceof ApiError ? submitError.message : "Something went wrong. Please try again.");
-    }
-  };
-
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground">
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
-        <div className="flex items-center justify-between">
+    <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="flex max-w-7xl flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <h1 className="text-2xl font-semibold">{title}</h1>
-          <Link to="/" className="text-sm font-medium text-primary hover:underline">
-            Back to home
-          </Link>
+          {canManage && (
+            <Button type="button" onClick={() => setIsCreateOpen(true)}>
+              + New task
+            </Button>
+          )}
         </div>
 
         <TasksNav />
 
-        {canManage && (
-          <div>
-            {!isCreateOpen && (
-              <Button type="button" variant="outline" onClick={() => setIsCreateOpen(true)}>
-                + New task
-              </Button>
-            )}
-            {isCreateOpen && (
-              <form
-                className="flex flex-col gap-4 rounded-md border border-border bg-card p-6"
-                onSubmit={handleSubmit(onCreate)}
-                noValidate
-              >
-                <h2 className="text-lg font-medium">New task</h2>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="new-title">Title</Label>
-                  <Input id="new-title" aria-invalid={errors.title ? "true" : "false"} {...register("title")} />
-                  {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="new-description">Description (optional)</Label>
-                  <Textarea id="new-description" {...register("description")} />
-                </div>
-                <div className="flex flex-wrap gap-4">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="new-priority">Priority</Label>
-                    <Select id="new-priority" {...register("priority")}>
-                      {PRIORITY_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="new-department">Department (optional)</Label>
-                    <Select id="new-department" {...register("department_id")}>
-                      <option value="">No department</option>
-                      {(departments ?? [])
-                        .filter((d) => d.status === "active")
-                        .map((d) => (
-                          <option key={d.id} value={d.id}>
-                            {d.name}
-                          </option>
-                        ))}
-                    </Select>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="new-start-date">Start date (optional)</Label>
-                    <Input id="new-start-date" type="date" {...register("start_date")} />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="new-due-date">Due date (optional)</Label>
-                    <Input id="new-due-date" type="date" {...register("due_date")} />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="new-estimated-hours">Estimated hours (optional)</Label>
-                    <Input id="new-estimated-hours" {...register("estimated_hours")} />
-                  </div>
-                </div>
-                {createError && (
-                  <p role="alert" className="text-sm text-destructive">
-                    {createError}
-                  </p>
-                )}
-                <div className="flex gap-3">
-                  <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? "Creating…" : "Create task"}
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
-                    Cancel
-                  </Button>
-                </div>
-              </form>
-            )}
-          </div>
-        )}
+        {canManage && <CreateTaskDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />}
 
-        <form className="flex flex-wrap items-end gap-3 rounded-md border border-border bg-card p-4" onSubmit={applyFilters}>
+        <form className="grid grid-cols-1 gap-3 rounded-md border border-border bg-card p-4 sm:flex sm:flex-wrap sm:items-end" onSubmit={applyFilters}>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="status-filter">Status</Label>
             <Select
@@ -343,8 +224,8 @@ export function TaskListView({
         )}
 
         {!isPending && !lockedAssigneeLoading && !isError && tasks.length > 0 && (
-          <div className="overflow-hidden rounded-md border border-border">
-            <table className="w-full text-left text-sm">
+          <div className="relative overflow-x-auto rounded-md border border-border">
+            <table className="w-full text-left text-sm [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
               <thead className="bg-card">
                 <tr>
                   <th className="px-4 py-2 font-medium">Title</th>
@@ -405,6 +286,6 @@ export function TaskListView({
           </div>
         )}
       </div>
-    </main>
+    </div>
   );
 }

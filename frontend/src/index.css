@@ -1,30 +1,43 @@
 @import "tailwindcss";
 
 /*
- * Design tokens from FlowDesk_Specification.md Section 12.1
- * (light theme only for now; dark theme is explicitly optional in the spec).
+ * FlowDesk's "ledger" theme - the back office of a small business,
+ * drawn from the ledger book and the banker's desk. Built and exported
+ * with tweakcn (OKLCH values below are its export); the named hex
+ * equivalents in each comment are the design's source of truth and
+ * match docs/FlowDesk_Specification.md Section 12.1. Light theme only
+ * (dark theme is explicitly optional in the spec).
  */
 :root {
-  --background: #f8fafc;
-  --foreground: #1e293b;
-  --card: #ffffff;
-  --card-foreground: #1e293b;
-  --primary: #4f46e5;
-  --primary-foreground: #ffffff;
-  --secondary: #6366f1;
-  --secondary-foreground: #ffffff;
-  --sidebar: #111827;
-  --sidebar-foreground: #f8fafc;
-  --success: #16a34a;
-  --warning: #f59e0b;
-  --destructive: #dc2626;
-  --destructive-foreground: #ffffff;
-  --border: #e2e8f0;
-  --ring: #4f46e5;
-  --radius: 0.5rem;
+  --background: oklch(0.9612 0.0069 124.4486); /* ledger paper #F1F3EE */
+  --foreground: oklch(0.2643 0.0251 251.1818); /* ink #1C2631 */
+  --card: oklch(0.9895 0.0041 121.5592); /* sheet #FBFCF9 */
+  --card-foreground: oklch(0.2643 0.0251 251.1818);
+  --primary: oklch(0.4704 0.0867 164.3641); /* banker's green #1E6A4E */
+  --primary-foreground: oklch(0.9805 0.0066 160.079);
+  --secondary: oklch(0.9293 0.0117 153.6624); /* green-tinted paper #E2EAE4 */
+  --secondary-foreground: oklch(0.3175 0.0481 167.0359);
+  --muted: oklch(0.9351 0.0102 131.3623); /* #E7EBE4 */
+  --muted-foreground: oklch(0.5013 0.0222 248.2693); /* faded ink #5A6570 */
+  --sidebar: oklch(0.3175 0.0481 167.0359); /* blotter #163A2D */
+  --sidebar-foreground: oklch(0.92 0.0159 160.6024); /* #DCE8E1 */
+  --sidebar-accent: oklch(0.393 0.0595 166.9985); /* #21503F */
+  --success: oklch(0.5275 0.1056 154.6); /* paid / completed #2E7A52 */
+  --warning: oklch(0.7469 0.1326 82.4643); /* manila #D6A43A */
+  --destructive: oklch(0.5179 0.1631 28.5991); /* stamp red #B3362C */
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.8904 0.0137 134.9037); /* rule #D7DDD4 */
+  --input: oklch(0.8576 0.0173 137.0314); /* #CBD3C8 */
+  --ring: oklch(0.4704 0.0867 164.3641);
+  /* Chart series - sent/active work reads as ink-blue, never as one of
+   * the status colors (success/warning/destructive) it sits beside. */
+  --chart-in-progress: oklch(0.5175 0.0701 238.1779); /* #3F6E8C */
+  --chart-neutral: oklch(0.8576 0.0173 137.0314);
+  --radius: 0.375rem;
 }
 
 @theme inline {
+  --font-sans: "Schibsted Grotesk Variable", "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -33,18 +46,82 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
+  --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-chart-in-progress: var(--chart-in-progress);
+  --color-chart-neutral: var(--chart-neutral);
   --radius-md: var(--radius);
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
+}
+
+/* Figures line up in columns where they're compared: tables and number
+   fields. Not on body - Schibsted Grotesk's tabular set also widens
+   punctuation, which put a visible gap before every period and colon
+   in running text ("No history yet ."). */
+table,
+input {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scrollbars: a slim pill of ruled-line green on a transparent track,
+   so the page reads as paper rather than browser chrome. The sidebar
+   (the blotter) gets its own darker pill. Chrome/Edge/Safari use the
+   ::-webkit-scrollbar rules (they allow the rounded, inset thumb);
+   Firefox, which has no such pseudo-elements, gets the standard
+   scrollbar-width/scrollbar-color pair instead. These are kept apart
+   because Chrome ignores the ::-webkit rules once scrollbar-color is
+   set on an element. */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  /* The transparent border insets the pill 3px from every edge. */
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background-color: var(--input);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted-foreground);
+}
+
+nav[aria-label="Primary"]::-webkit-scrollbar-thumb {
+  background-color: var(--sidebar-accent);
+}
+
+nav[aria-label="Primary"]::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklch, var(--sidebar-foreground) 45%, var(--sidebar));
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--input) transparent;
+  }
+
+  nav[aria-label="Primary"] {
+    scrollbar-color: var(--sidebar-accent) transparent;
+  }
 }

@@ -30,9 +30,11 @@ interface AuthContextValue {
   user: UserPublic | null;
   status: AuthStatus;
   csrfToken: string | null;
-  login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, turnstileToken?: string) => Promise<void>;
+  register: (name: string, email: string, password: string, turnstileToken?: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Swap in the user record a profile update returned (Settings > My account). */
+  replaceUser: (updated: UserPublic) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -64,19 +66,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const result = await authApi.login({ email, password });
+  const login = useCallback(async (email: string, password: string, turnstileToken?: string) => {
+    const result = await authApi.login({ email, password, turnstile_token: turnstileToken });
     sessionStorage.setItem(CSRF_STORAGE_KEY, result.csrf_token);
     setCsrfToken(result.csrf_token);
     setUser(result.user);
     setStatus("authenticated");
   }, []);
 
-  const register = useCallback(async (name: string, email: string, password: string) => {
+  const register = useCallback(async (name: string, email: string, password: string, turnstileToken?: string) => {
     // Does not log in - registration never starts a session
     // (backend/docs/API.md). The caller is responsible for navigating
     // to the login page afterward.
-    await authApi.register({ name, email, password });
+    await authApi.register({ name, email, password, turnstile_token: turnstileToken });
   }, []);
 
   const logout = useCallback(async () => {
@@ -101,9 +103,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [csrfToken]);
 
+  const replaceUser = useCallback((updated: UserPublic) => setUser(updated), []);
+
   const value = useMemo(
-    () => ({ user, status, csrfToken, login, register, logout }),
-    [user, status, csrfToken, login, register, logout],
+    () => ({ user, status, csrfToken, login, register, logout, replaceUser }),
+    [user, status, csrfToken, login, register, logout, replaceUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

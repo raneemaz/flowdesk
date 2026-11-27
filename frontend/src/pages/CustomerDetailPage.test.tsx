@@ -127,11 +127,12 @@ describe("CustomerDetailPage", () => {
       meta: { page: 1, per_page: 50, total: 0, total_pages: 0 },
     });
     const archiveSpy = vi.spyOn(customersApi, "archiveCustomer").mockResolvedValue({ ...SAMPLE_CUSTOMER, status: "archived" });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
 
     renderPage();
     await user.click(await screen.findByRole("button", { name: "Archive" }));
+    expect(archiveSpy).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "Archive customer" }));
 
     await waitFor(() => expect(archiveSpy).toHaveBeenCalledWith("org-1", "c1", "csrf-abc"));
   });

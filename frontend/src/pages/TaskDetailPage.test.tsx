@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -50,7 +50,7 @@ const TASK: TaskPublic = {
 };
 
 function membership(role: MembershipPublic["role"]): MembershipPublic {
-  return { organization: ORG, role, status: "active", joined_at: "now" };
+  return { membership_id: "m1", organization: ORG, role, status: "active", joined_at: "now" };
 }
 
 function renderPage() {
@@ -124,6 +124,54 @@ describe("TaskDetailPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Write report" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit task" })).not.toBeInTheDocument();
+  });
+
+  it("deletes the task after confirmation and returns to the task list", async () => {
+    mockAuthenticated("owner");
+    vi.spyOn(tasksApi, "getTask").mockResolvedValue(TASK);
+    vi.spyOn(departmentsApi, "listDepartments").mockResolvedValue([]);
+    mockCommonQueries();
+    const deleteSpy = vi.spyOn(tasksApi, "deleteTask").mockResolvedValue(null);
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Delete task" }));
+
+    // Nothing is deleted until the confirmation is accepted.
+    expect(await screen.findByRole("heading", { name: "Delete this task?" })).toBeInTheDocument();
+    expect(deleteSpy).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Delete task" }));
+
+    await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith("org-1", TASK.id, "csrf-abc"));
+    expect(await screen.findByText("Task list page")).toBeInTheDocument();
+  });
+
+  it("keeps the task when the delete confirmation is dismissed", async () => {
+    mockAuthenticated("owner");
+    vi.spyOn(tasksApi, "getTask").mockResolvedValue(TASK);
+    vi.spyOn(departmentsApi, "listDepartments").mockResolvedValue([]);
+    mockCommonQueries();
+    const deleteSpy = vi.spyOn(tasksApi, "deleteTask").mockResolvedValue(null);
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Delete task" }));
+    await user.click(await screen.findByRole("button", { name: "Keep it" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(deleteSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not offer Delete to a non-manager", async () => {
+    mockAuthenticated("employee");
+    vi.spyOn(tasksApi, "getTask").mockResolvedValue({ ...TASK, assignee_membership_id: "m1" });
+    mockCommonQueries();
+
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "Write report" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete task" })).not.toBeInTheDocument();
   });
 
   it("shows a not-found message when the task doesn't exist", async () => {
@@ -322,5 +370,58 @@ describe("TaskDetailPage", () => {
 
     const item = await screen.findByText(/changed assignee from/);
     expect(item).toHaveTextContent("Ada changed assignee from Unassigned to Bea on");
+  });
+  it("lets the author edit their own comment and shows it as edited", async () => {
+    mockAuthenticated("employee");
+    vi.spyOn(tasksApi, "getTask").mockResolvedValue({ ...TASK, assignee_membership_id: "m1" });
+    mockCommonQueries();
+    vi.spyOn(tasksApi, "listTaskComments").mockResolvedValue({
+      comments: [
+        { id: "c1", task_id: TASK.id, author_membership_id: "m1", body: "My note", created_at: "2026-11-27T09:00:00Z", edited_at: "2026-11-27T09:05:00Z" },
+        { id: "c2", task_id: TASK.id, author_membership_id: "m9", body: "Their note", created_at: "2026-11-27T09:10:00Z" },
+      ],
+      meta: { page: 1, per_page: 100, total: 2, total_pages: 1 },
+    });
+    const updateSpy = vi.spyOn(tasksApi, "updateTaskComment").mockResolvedValue({
+      id: "c1", task_id: TASK.id, author_membership_id: "m1", body: "My better note", created_at: "now",
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    expect(await screen.findByText("(edited)")).toBeInTheDocument();
+    // An employee can't edit or delete someone else's comment.
+    expect(screen.queryByRole("button", { name: "Edit comment by A former member" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete comment by A former member" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit comment by Ada" }));
+    const box = screen.getByLabelText("Edit comment");
+    await user.clear(box);
+    await user.type(box, "My better note");
+    await user.click(screen.getByRole("button", { name: "Save comment" }));
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledWith("org-1", TASK.id, "c1", "My better note", "csrf-abc"));
+  });
+
+  it("lets a manager delete someone else's comment after confirming", async () => {
+    mockAuthenticated("owner");
+    vi.spyOn(tasksApi, "getTask").mockResolvedValue(TASK);
+    vi.spyOn(departmentsApi, "listDepartments").mockResolvedValue([]);
+    mockCommonQueries();
+    vi.spyOn(tasksApi, "listTaskComments").mockResolvedValue({
+      comments: [{ id: "c2", task_id: TASK.id, author_membership_id: "m9", body: "Wrong thread", created_at: "now" }],
+      meta: { page: 1, per_page: 100, total: 1, total_pages: 1 },
+    });
+    const deleteSpy = vi.spyOn(tasksApi, "deleteTaskComment").mockResolvedValue(null);
+    const user = userEvent.setup();
+
+    renderPage();
+    // Not the author, so no Edit - but moderators may delete.
+    expect(await screen.findByRole("button", { name: "Delete comment by A former member" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit comment by A former member" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete comment by A former member" }));
+    expect(deleteSpy).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "Delete comment" }));
+
+    await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith("org-1", TASK.id, "c2", "csrf-abc"));
   });
 });

@@ -248,4 +248,5 @@ def test_task_comment_to_public_dict_shape(db_session):
         "author_membership_id": None,
         "body": "Looks good.",
         "created_at": comment.created_at.isoformat(),
+        "edited_at": None,
     }

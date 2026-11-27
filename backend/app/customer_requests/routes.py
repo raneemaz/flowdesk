@@ -15,6 +15,9 @@ from app.customer_requests.schemas import (
 )
 from app.customer_requests.service import (
     assign_request,
+    delete_request,
+    delete_request_comment,
+    edit_request_comment,
     create_request,
     create_request_comment,
     get_request,
@@ -265,3 +268,52 @@ def get_customer_request_history(organization_id, request_id):
         "meta": {"page": query.page, "per_page": query.per_page, "total": total, "total_pages": total_pages},
     }
     return jsonify(body), 200
+
+
+@customer_requests_bp.route(
+    "/organizations/<uuid:organization_id>/customer-requests/<uuid:request_id>", methods=["DELETE"]
+)
+@login_required
+@csrf_protect
+@require_permission(Permission.CUSTOMER_REQUEST_MANAGE)
+def remove_customer_request(organization_id, request_id):
+    """Owner/Manager only (checked in delete_request). Permanent."""
+    delete_request(organization_id, request_id, actor=g.current_membership)
+    return jsonify({"success": True, "message": "Request deleted", "data": None}), 200
+
+
+@customer_requests_bp.route(
+    "/organizations/<uuid:organization_id>/customer-requests/<uuid:request_id>/comments/<uuid:comment_id>",
+    methods=["PATCH"],
+)
+@login_required
+@csrf_protect
+@require_permission(Permission.CUSTOMER_REQUEST_MANAGE)
+def patch_request_comment(organization_id, request_id, comment_id):
+    payload = request.get_json(silent=True)
+    if payload is None:
+        raise APIError("Request body must be valid JSON.", status_code=400, code="BAD_REQUEST")
+    try:
+        data = CreateRequestCommentRequest.model_validate(payload)
+    except ValidationError as exc:
+        raise APIError(
+            "Validation failed", status_code=422, code="VALIDATION_ERROR", details=validation_error_details(exc)
+        )
+    comment = edit_request_comment(
+        organization_id, request_id, comment_id, scope=g.permission_scope, actor=g.current_membership, body=data.body
+    )
+    return jsonify({"success": True, "message": "Comment updated", "data": comment.to_public_dict()}), 200
+
+
+@customer_requests_bp.route(
+    "/organizations/<uuid:organization_id>/customer-requests/<uuid:request_id>/comments/<uuid:comment_id>",
+    methods=["DELETE"],
+)
+@login_required
+@csrf_protect
+@require_permission(Permission.CUSTOMER_REQUEST_MANAGE)
+def remove_request_comment(organization_id, request_id, comment_id):
+    delete_request_comment(
+        organization_id, request_id, comment_id, scope=g.permission_scope, actor=g.current_membership
+    )
+    return jsonify({"success": True, "message": "Comment deleted", "data": None}), 200

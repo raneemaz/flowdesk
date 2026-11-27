@@ -156,29 +156,29 @@ export function InvoiceFormPage() {
 
   if (isEditing && (isInvoicePending || isLineItemsPending)) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background text-foreground">
+      <div className="flex items-center justify-center px-6 py-24">
         <p className="text-sm text-foreground/70">Loading invoice…</p>
-      </main>
+      </div>
     );
   }
 
   if (isEditing && existingInvoice && !canEditInvoice(existingInvoice.status)) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background text-foreground">
+      <div className="flex flex-col items-center justify-center gap-3 px-6 py-24">
         <p role="alert" className="text-sm text-destructive">
           Only a draft invoice can be edited - this invoice has already been issued.
         </p>
         <Link to={`/invoices/${invoiceId}`} className="text-sm font-medium text-primary hover:underline">
           Back to invoice
         </Link>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground">
-      <div className="mx-auto flex max-w-3xl flex-col gap-6">
-        <div className="flex items-center justify-between">
+    <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="flex max-w-3xl flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <h1 className="text-2xl font-semibold">{isEditing ? "Edit invoice" : "New invoice"}</h1>
           <Link to="/invoices" className="text-sm font-medium text-primary hover:underline">
             Back to invoices
@@ -186,7 +186,7 @@ export function InvoiceFormPage() {
         </div>
 
         <form className="flex flex-col gap-6" onSubmit={handleSubmit(onSubmit)} noValidate>
-          <div className="flex flex-col gap-4 rounded-md border border-border bg-card p-6">
+          <div className="flex flex-col gap-4 rounded-md border border-border bg-card p-4 sm:p-6">
             <div className="flex flex-wrap gap-4">
               <div className="flex min-w-[220px] flex-1 flex-col gap-1.5">
                 <Label htmlFor="customer_id">Customer</Label>
@@ -226,8 +226,8 @@ export function InvoiceFormPage() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-6">
-            <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
               <h2 className="text-lg font-medium">Line items</h2>
               <Button
                 type="button"
@@ -287,7 +287,7 @@ export function InvoiceFormPage() {
             ))}
           </div>
 
-          <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-6">
+          <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:p-6">
             <h2 className="text-lg font-medium">Discount</h2>
             <div className="flex flex-wrap gap-4">
               <div className="flex flex-col gap-1.5">
@@ -307,8 +307,8 @@ export function InvoiceFormPage() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-1 rounded-md border border-border bg-card p-6 text-sm">
-            <p className="mb-1 text-xs font-medium uppercase tracking-wide text-foreground/50">
+          <div className="flex flex-col gap-1 rounded-md border border-border bg-card p-4 sm:p-6 text-sm">
+            <p className="mb-1 text-xs font-medium text-muted-foreground">
               Estimated totals (the saved invoice's own totals are always server-computed)
             </p>
             <TotalRow label="Subtotal" value={formatMoney(preview.subtotal, watchedCurrency)} />
@@ -333,7 +333,7 @@ export function InvoiceFormPage() {
           </div>
         </form>
       </div>
-    </main>
+    </div>
   );
 }
 

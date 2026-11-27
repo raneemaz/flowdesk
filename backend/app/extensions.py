@@ -1,4 +1,5 @@
 """Shared Flask extension instances, initialized against the app in create_app()."""
+from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_migrate import Migrate
@@ -30,3 +31,19 @@ sess = Session()
 # implicit) - only the specific auth routes that opt in via `@limiter.limit(...)`
 # are throttled, never a blanket limit on every route.
 limiter = Limiter(key_func=get_remote_address)
+
+# FD-065: the frontend (Vercel) and backend (Render) are separate
+# origins in production, unlike local dev where Vite's own proxy
+# (vite.config.ts) makes every request same-origin from the browser's
+# point of view - a real cross-origin deployment needs actual CORS
+# headers, which nothing in this codebase set before this task.
+# `supports_credentials=True` is required for the session cookie to be
+# sent/received cross-site at all; paired with SESSION_COOKIE_SAMESITE=
+# "None" (required in that env, see app/config.py) once genuinely
+# cross-site. Scoped to API_PREFIX only, never a wildcard origin (which
+# the browser rejects outright alongside credentials=true anyway) -
+# config.py's `FRONTEND_URL` (already the one source of truth for "the
+# frontend's own origin", previously only used to build invitation
+# email links) is reused here rather than a second, near-duplicate env
+# var for the same value.
+cors = CORS()

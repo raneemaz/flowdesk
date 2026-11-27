@@ -156,9 +156,13 @@ CORS-with-credentials configured on the backend. `vite.config.ts`'s
 which makes every request same-origin from the browser's point of view
 and needs no backend change at all - `src/api/client.ts` calls
 `VITE_API_BASE_URL` (default `/api/v1`), which goes through that proxy.
-This only covers local development; the real cross-origin setup for
-production (frontend on Vercel, backend on Render) is still open per
-Section 35 decision #13 (see `backend/README.md`).
+This only covers local development; the real cross-origin production
+setup (frontend on Vercel, backend on Render, resolved in FD-065 per
+Section 35 decision #13) is CORS-with-credentials on the backend
+(`app/extensions.py`'s `cors`) plus `VITE_API_BASE_URL` set to an
+absolute `https://` URL in Vercel's own build settings, since a static
+production build has no dev-server proxy to go through - see
+`backend/README.md`'s Deployment section for the full setup.
 
 **Verified against the real backend in a real browser** (not just the
 component tests, which mock the API layer): register → duplicate-email
@@ -889,3 +893,85 @@ other test file in this codebase. It's how `DashboardLayout`/
 `Sidebar`/`TopBar`'s mobile off-canvas nav (FD-063) was itself found
 necessary and verified: the dashboard overflowed horizontally on a
 375px viewport before that change, with no other test able to detect it.
+
+## Performance
+
+Measured with the production build served the way Vercel serves it
+(Brotli, SPA fallback), in system Chrome via Playwright, median of 3
+runs per page. "Slow phone" = 4x CPU slowdown + Slow 4G (150 ms RTT,
+1.6 Mbps down). "Ready" = the page's real content is on screen.
+
+| Page (cold load) | Desktop ready, before → after | Slow phone ready, before → after |
+|---|---|---|
+| Login | 1.16 s → 0.38 s | 4.2 s → 3.4 s |
+| Overview (owner) | 1.16 s → 0.36 s | 6.0 s → 2.7 s |
+| Analytics | 1.65 s → 1.0 s | 7.5 s → 4.7 s |
+| Calendar | 1.17 s → 0.55 s | 4.9 s → 3.8 s |
+
+What does it:
+
+- **Code splitting / lazy loading** (`src/routes/router.tsx`): every
+  page is its own chunk, fetched on first visit. The entry bundle went
+  from 1,170 KB (329 KB gzip) to 395 KB (124 KB gzip). The chart
+  library (`recharts`, ~124 KB gzip) only loads with Analytics and the
+  manager/accountant dashboards (`RoleDashboard.tsx` explains why the
+  other dashboards are deliberately *not* split further).
+- **Skeletons** (`src/components/PageSkeleton.tsx`): shown inside the
+  dashboard shell while a page chunk loads, so the sidebar and top bar
+  never disappear.
+- **Self-hosted font** (`@fontsource-variable/schibsted-grotesk`,
+  imported in `src/main.tsx`): replaced the render-blocking Google
+  Fonts stylesheet, removing two third-party origins from every first
+  load. One variable file covers weights 400-700.
+- **Long-lived caching** (`vercel.json`): hashed `/assets/*` are cached
+  for a year as `immutable`.
+- **Request time limit** (`src/api/client.ts`): every API call gives up
+  after 30 s (AI report generation: 90 s) with a clear "took too long"
+  error, instead of loading forever on a dropped connection.
+- **Optimistic "mark read"** on notifications: shown read instantly,
+  rolled back if the server refuses.
+
+On the backend, `backend/tests/test_query_counts.py` guards against N+1
+queries: every list endpoint must issue the same number of SQL
+statements for 2 rows as for 12.
+
+## Settings, Activity, task delete, and confirm dialogs
+
+- **Settings** (`/settings`, `src/pages/SettingsPage.tsx`, `src/features/settings/`):
+  three sections, with the open one kept in the URL (`?section=`).
+  - *Organization*: owners edit every field. Managers edit contact details and the
+    date format; name, currency and timezone show as owner-only. Everyone else sees the profile read-only.
+  - *Members* (Owner/Manager only): change roles, remove or restore access, invite. Your own row
+    is never editable; the backend also keeps at least one active owner.
+  - *My account* (everyone): change your name and password. Email is the sign-in identity, so it
+    can't be changed here.
+- **Activity** (`/activity`): the organization's audit trail as plain sentences
+  (`src/features/activity/describe.ts`), linking to records that still exist. What each role sees is
+  decided by the backend.
+- **Task delete**: on the task page and in the calendar's task dialog, for owners and managers,
+  always behind a confirmation. It's permanent; "Cancel task" (a status) is still there for
+  keeping a record.
+- **`ConfirmDialog`** (`src/components/ConfirmDialog.tsx`) replaces `window.confirm` everywhere
+  (department deactivate, customer archive, task delete, remove access). The button always names
+  the action, and a failure is shown inside the dialog.
+- All "add" forms open as dialogs: tasks (one shared `CreateTaskDialog` for the list and the
+  calendar), requests, departments, customers, invitations.
+- **Comments** (task and request pages) use one `CommentItem` component. You can edit your own
+  comments, which then show "(edited)". You can delete your own, and owners and managers can
+  delete anyone's (moderation), after a confirmation. The viewer's own comments are recognised by
+  `membership_id`, which now comes with each membership from `GET /organizations`.
+- **Request delete**: owners and managers only, permanent, behind a confirmation, same as
+  task delete.
+
+## Landing page and logo
+
+- **`/welcome`** (`src/pages/LandingPage.tsx`) is the public front door:
+  - a hero with an interactive screen tour (folder tabs switch real screenshots);
+  - feature sections, each cropped to the part of the screen its copy describes;
+  - the 1-minute demo video, with chapter buttons that jump to each part;
+  - the security facts;
+  - Log in and "Create your workspace" throughout.
+  Signed-in visitors see "Open FlowDesk" instead.
+- A signed-out visit to `/` goes to `/welcome` (`ProtectedRoute`). Deeper links still go to `/login` and return afterwards.
+- Images and the demo video live in `public/landing/` (WebP screenshots of the fictional demo company Northbeam Digital, 720p MP4 and poster).
+- **Logo**: an "F" whose stem curves into the top bar, with a gold middle bar. It's `src/components/Logo.tsx` (`Logo`, `LogoMark`, with light and dark versions) and `public/favicon.svg`. It appears on the landing page, login, register and the sidebar; the collapsed sidebar shows just the mark.

@@ -18,6 +18,9 @@ export type MembershipRole = "owner" | "manager" | "employee" | "accountant" | "
 export type MembershipStatus = "active" | "inactive" | "suspended";
 
 export interface MembershipPublic {
+  /** The viewer's own membership id in this organization. Optional only so
+   * older fixtures/tests that predate it still type-check. */
+  membership_id?: string;
   organization: OrganizationPublic;
   role: MembershipRole;
   status: MembershipStatus;

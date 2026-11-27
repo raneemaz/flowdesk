@@ -61,8 +61,8 @@ export function CreateOrganizationPage() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
-      <div className="w-full max-w-sm rounded-md border border-border bg-card p-6 shadow-sm">
+    <div className="flex justify-center px-6 py-16">
+      <div className="w-full max-w-sm rounded-md border border-border bg-card p-4 sm:p-6 shadow-sm">
         <h1 className="mb-2 text-xl font-semibold">Create an organization</h1>
         <p className="mb-6 text-sm text-foreground/70">
           You&apos;ll become its Owner. Only the name is required - everything else can be added later.
@@ -122,6 +122,6 @@ export function CreateOrganizationPage() {
           </p>
         )}
       </div>
-    </main>
+    </div>
   );
 }

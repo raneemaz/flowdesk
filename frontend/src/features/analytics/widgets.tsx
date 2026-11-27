@@ -18,7 +18,7 @@ export function Section({ title, children }: { title: string; children: ReactNod
 export function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5 rounded-md border border-border bg-card p-4">
-      <span className="text-xs font-medium uppercase tracking-wide text-foreground/50">{label}</span>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <span className="text-lg font-semibold">{value}</span>
     </div>
   );

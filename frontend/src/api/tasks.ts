@@ -86,6 +86,12 @@ export function updateTask(
   });
 }
 
+// Permanent: the task, its comments and history are removed (the
+// activity log keeps a "task deleted" entry). Owner/Manager only.
+export function deleteTask(organizationId: string, taskId: string, csrfToken: string): Promise<null> {
+  return apiFetch<null>(`/organizations/${organizationId}/tasks/${taskId}`, { method: "DELETE", csrfToken });
+}
+
 export function assignTask(
   organizationId: string,
   taskId: string,
@@ -159,4 +165,32 @@ export async function listTaskHistory(
     `/organizations/${organizationId}/tasks/${taskId}/history?${params.toString()}`,
   );
   return { entries: data, meta };
+}
+
+// Author only.
+export function updateTaskComment(
+  organizationId: string,
+  taskId: string,
+  commentId: string,
+  body: string,
+  csrfToken: string,
+): Promise<TaskCommentPublic> {
+  return apiFetch<TaskCommentPublic>(`/organizations/${organizationId}/tasks/${taskId}/comments/${commentId}`, {
+    method: "PATCH",
+    body: { body },
+    csrfToken,
+  });
+}
+
+// Author, or an Owner/Manager.
+export function deleteTaskComment(
+  organizationId: string,
+  taskId: string,
+  commentId: string,
+  csrfToken: string,
+): Promise<null> {
+  return apiFetch<null>(`/organizations/${organizationId}/tasks/${taskId}/comments/${commentId}`, {
+    method: "DELETE",
+    csrfToken,
+  });
 }

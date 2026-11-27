@@ -151,3 +151,36 @@ export async function listRequestHistory(
   );
   return { entries: data, meta };
 }
+
+// Permanent: the request, its comments and history are removed (the
+// activity log keeps a "request deleted" entry). Owner/Manager only.
+export function deleteRequest(organizationId: string, requestId: string, csrfToken: string): Promise<null> {
+  return apiFetch<null>(`/organizations/${organizationId}/customer-requests/${requestId}`, { method: "DELETE", csrfToken });
+}
+
+// Author only.
+export function updateRequestComment(
+  organizationId: string,
+  requestId: string,
+  commentId: string,
+  body: string,
+  csrfToken: string,
+): Promise<RequestCommentPublic> {
+  return apiFetch<RequestCommentPublic>(
+    `/organizations/${organizationId}/customer-requests/${requestId}/comments/${commentId}`,
+    { method: "PATCH", body: { body }, csrfToken },
+  );
+}
+
+// Author, or an Owner/Manager.
+export function deleteRequestComment(
+  organizationId: string,
+  requestId: string,
+  commentId: string,
+  csrfToken: string,
+): Promise<null> {
+  return apiFetch<null>(`/organizations/${organizationId}/customer-requests/${requestId}/comments/${commentId}`, {
+    method: "DELETE",
+    csrfToken,
+  });
+}

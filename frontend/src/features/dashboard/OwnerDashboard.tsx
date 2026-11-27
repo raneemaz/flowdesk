@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { getEmployeeAnalytics, getOverviewAnalytics } from "@/api/analytics";
 import { Loading, QueryError, Section, StatCard } from "@/features/analytics/widgets";
+import { ActivityFeedSummary, InvoicesPaymentsSummary, TaskBoardSummary } from "@/features/dashboard/SummaryWidgets";
 
 const CURRENT_MONTH = { period: "current_month" } as const;
 
@@ -30,6 +31,14 @@ export function OwnerDashboard({ organizationId }: { organizationId: string }) {
 
   return (
     <div className="flex flex-col gap-6">
+      <Section title="Summary">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <TaskBoardSummary organizationId={organizationId} />
+          <InvoicesPaymentsSummary organizationId={organizationId} />
+          <ActivityFeedSummary organizationId={organizationId} />
+        </div>
+      </Section>
+
       <Section title="Business stats">
         {overviewQuery.isPending && <Loading />}
         {overviewQuery.isError && <QueryError error={overviewQuery.error} />}

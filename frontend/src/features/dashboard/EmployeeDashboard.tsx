@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
 import { listActivity } from "@/api/activity";
+import { describeActivity } from "@/features/activity/describe";
 import { getEmployeeAnalytics } from "@/api/analytics";
 import { listNotifications } from "@/api/notifications";
 import { listTasks } from "@/api/tasks";
@@ -114,7 +115,7 @@ export function EmployeeDashboard({ organizationId }: { organizationId: string }
           <ul className="flex flex-col gap-2">
             {activityQuery.data.entries.map((entry) => (
               <li key={entry.id} className="rounded-md border border-border bg-card p-3 text-sm text-foreground/70">
-                {entry.action.replace(/_/g, " ")}
+                {describeActivity(entry, () => "You").text}
               </li>
             ))}
           </ul>

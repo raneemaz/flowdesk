@@ -89,6 +89,9 @@ class Membership(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
 
     def to_public_dict(self) -> dict:
         return {
+            # The caller's own membership id in this organization - lets the
+            # UI tell which comments etc. are the viewer's own.
+            "membership_id": str(self.id),
             "organization": self.organization.to_public_dict(),
             "role": self.role.value,
             "status": self.status.value,

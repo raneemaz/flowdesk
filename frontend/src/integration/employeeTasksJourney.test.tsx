@@ -50,6 +50,9 @@ describe("employee tasks journey", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "Tasks" })).toBeInTheDocument());
 
     await user.click(screen.getByRole("link", { name: "My Tasks" }));
+    // Pages load on demand, and the Tasks page (showing the same task)
+    // stays up until My Tasks is ready - so wait for My Tasks itself.
+    expect(await screen.findByRole("heading", { name: "My Tasks" })).toBeInTheDocument();
     expect(await screen.findByText("Follow up with the customer")).toBeInTheDocument();
   });
 });

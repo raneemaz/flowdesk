@@ -50,7 +50,17 @@ export interface ApiRequestOptions {
   method?: "GET" | "POST" | "DELETE" | "PATCH";
   body?: unknown;
   csrfToken?: string | null;
+  /** Give up after this long (default DEFAULT_TIMEOUT_MS). */
+  timeoutMs?: number;
 }
+
+// Without a cap, a request on a dropped or very weak connection can sit
+// "loading" forever. 30s sits well above any normal response and below
+// the server's own 60s worker timeout; AI generation passes a longer
+// cap of its own (it waits on the AI provider, with retries).
+export const DEFAULT_TIMEOUT_MS = 30_000;
+
+export const TIMEOUT_MESSAGE = "The server took too long to respond. Check your connection and try again.";
 
 async function request<T>(path: string, options: ApiRequestOptions = {}): Promise<SuccessEnvelope<T>> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -58,12 +68,21 @@ async function request<T>(path: string, options: ApiRequestOptions = {}): Promis
     headers["X-CSRF-Token"] = options.csrfToken;
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: options.method ?? "GET",
-    headers,
-    credentials: "include",
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: options.method ?? "GET",
+      headers,
+      credentials: "include",
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if ((error as { name?: string } | null)?.name === "TimeoutError") {
+      throw new ApiError(0, "TIMEOUT", TIMEOUT_MESSAGE, {});
+    }
+    throw error;
+  }
 
   // Every response from this API is JSON (see docs/API.md) - including
   // errors, so there's no "ok vs. not ok" branch before parsing.

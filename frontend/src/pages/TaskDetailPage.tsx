@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
 import { listDepartments } from "@/api/departments";
@@ -10,12 +10,17 @@ import { listEmployees } from "@/api/employees";
 import {
   assignTask,
   createTaskComment,
+  deleteTask,
+  deleteTaskComment,
   getTask,
   listTaskComments,
   listTaskHistory,
   updateTask,
+  updateTaskComment,
   updateTaskStatus,
 } from "@/api/tasks";
+import { CommentItem } from "@/components/CommentItem";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,6 +44,7 @@ export function TaskDetailPage() {
   const { activeMembership } = useOrganization();
   const organizationId = activeMembership?.organization.id ?? "";
   const canManage = activeMembership ? canManageTasks(activeMembership.role) : false;
+  const myMembershipId = activeMembership?.membership_id;
   const queryClient = useQueryClient();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -46,6 +52,8 @@ export function TaskDetailPage() {
   const [assignError, setAssignError] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [commentError, setCommentError] = useState<string | null>(null);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const navigate = useNavigate();
 
   const taskQueryKey = ["task", organizationId, taskId];
   const { data: task, isPending, isError, error } = useQuery({
@@ -182,22 +190,22 @@ export function TaskDetailPage() {
 
   if (isPending) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background text-foreground">
+      <div className="flex items-center justify-center px-6 py-24">
         <p className="text-sm text-foreground/70">Loading task…</p>
-      </main>
+      </div>
     );
   }
 
   if (isError || !task) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background text-foreground">
+      <div className="flex flex-col items-center justify-center gap-3 px-6 py-24">
         <p role="alert" className="text-sm text-destructive">
           {error instanceof ApiError ? error.message : "Task not found."}
         </p>
         <Link to="/tasks" className="text-sm font-medium text-primary hover:underline">
           Back to tasks
         </Link>
-      </main>
+      </div>
     );
   }
 
@@ -216,9 +224,32 @@ export function TaskDetailPage() {
   };
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground">
-      <div className="mx-auto flex max-w-2xl flex-col gap-6">
-        <div className="flex items-center justify-between">
+    <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="flex max-w-3xl flex-col gap-6">
+        {canManage && (
+          <ConfirmDialog
+            open={isConfirmingDelete}
+            onOpenChange={setIsConfirmingDelete}
+            title="Delete this task?"
+            description={
+              <>
+                “{task.title}” and its comments and history will be permanently deleted. This can’t be undone.
+              </>
+            }
+            confirmLabel="Delete task"
+            destructive
+            onConfirm={async () => {
+              await deleteTask(organizationId, task.id, csrfToken ?? "");
+              queryClient.removeQueries({ queryKey: taskQueryKey });
+              await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["tasks", organizationId] }),
+                queryClient.invalidateQueries({ queryKey: ["tasks-calendar", organizationId] }),
+              ]);
+              navigate("/tasks", { replace: true });
+            }}
+          />
+        )}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <h1 className="text-2xl font-semibold">{task.title}</h1>
           <Link to="/tasks" className="text-sm font-medium text-primary hover:underline">
             Back to tasks
@@ -226,7 +257,7 @@ export function TaskDetailPage() {
         </div>
 
         {!isEditing && (
-          <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-6">
+          <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:p-6">
             <Field label="Status" value={STATUS_LABELS[task.status]} />
             <Field label="Priority" value={PRIORITY_OPTIONS.find((o) => o.value === task.priority)?.label ?? task.priority} />
             <Field label="Description" value={task.description ?? "—"} />
@@ -241,16 +272,19 @@ export function TaskDetailPage() {
             {canManage && <Field label="Actual hours" value={task.actual_hours ?? "—"} />}
 
             {canManage && (
-              <Button className="mt-2 self-start" onClick={() => setIsEditing(true)}>
-                Edit task
-              </Button>
+              <div className="mt-2 flex flex-wrap gap-3">
+                <Button onClick={() => setIsEditing(true)}>Edit task</Button>
+                <Button variant="outline" className="text-destructive" onClick={() => setIsConfirmingDelete(true)}>
+                  Delete task
+                </Button>
+              </div>
             )}
           </div>
         )}
 
         {isEditing && (
           <form
-            className="flex flex-col gap-4 rounded-md border border-border bg-card p-6"
+            className="flex flex-col gap-4 rounded-md border border-border bg-card p-4 sm:p-6"
             onSubmit={editForm.handleSubmit(onEditSubmit)}
             noValidate
           >
@@ -323,7 +357,7 @@ export function TaskDetailPage() {
         )}
 
         {canManage && (
-          <div className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-6">
+          <div className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-4 sm:p-6">
             <Label htmlFor="assign-select">Assignee</Label>
             <Select
               id="assign-select"
@@ -345,7 +379,7 @@ export function TaskDetailPage() {
           </div>
         )}
 
-        <div className="flex flex-col gap-2 rounded-md border border-border bg-card p-6">
+        <div className="flex flex-col gap-2 rounded-md border border-border bg-card p-4 sm:p-6">
           <p className="text-sm font-medium">Move to:</p>
           <div className="flex flex-wrap gap-2">
             {nextStatuses.length === 0 && <p className="text-sm text-foreground/70">No further status changes available.</p>}
@@ -362,19 +396,32 @@ export function TaskDetailPage() {
           )}
         </div>
 
-        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-6">
+        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:p-6">
           <h2 className="text-lg font-medium">Comments</h2>
           <div className="flex flex-col gap-3">
             {(commentsData?.comments ?? []).length === 0 && <p className="text-sm text-foreground/70">No comments yet.</p>}
-            {(commentsData?.comments ?? []).map((comment) => (
-              <div key={comment.id} className="rounded-md border border-border p-3">
-                <p className="text-xs font-medium text-foreground/70">
-                  {comment.author_membership_id ? (nameById.get(comment.author_membership_id) ?? "Unknown") : "Unknown"} ·{" "}
-                  {new Date(comment.created_at).toLocaleString()}
-                </p>
-                <p className="text-sm">{comment.body}</p>
-              </div>
-            ))}
+            {(commentsData?.comments ?? []).map((comment) => {
+              const isMine = Boolean(myMembershipId) && comment.author_membership_id === myMembershipId;
+              return (
+                <CommentItem
+                  key={comment.id}
+                  comment={comment}
+                  authorName={
+                    comment.author_membership_id ? (nameById.get(comment.author_membership_id) ?? "A former member") : "A former member"
+                  }
+                  canEdit={isMine}
+                  canDelete={isMine || canManage}
+                  onSave={async (body) => {
+                    await updateTaskComment(organizationId, task.id, comment.id, body, csrfToken ?? "");
+                    await queryClient.invalidateQueries({ queryKey: ["task-comments", organizationId, taskId] });
+                  }}
+                  onDelete={async () => {
+                    await deleteTaskComment(organizationId, task.id, comment.id, csrfToken ?? "");
+                    await queryClient.invalidateQueries({ queryKey: ["task-comments", organizationId, taskId] });
+                  }}
+                />
+              );
+            })}
           </div>
           <form className="flex flex-col gap-2" onSubmit={commentForm.handleSubmit(onCommentSubmit)} noValidate>
             <Label htmlFor="comment-body" className="sr-only">
@@ -395,7 +442,7 @@ export function TaskDetailPage() {
           </form>
         </div>
 
-        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-6">
+        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:p-6">
           <h2 className="text-lg font-medium">History</h2>
           {(historyData?.entries ?? []).length === 0 && <p className="text-sm text-foreground/70">No history yet.</p>}
           <ul className="flex flex-col gap-2">
@@ -417,14 +464,14 @@ export function TaskDetailPage() {
           </ul>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs font-medium uppercase tracking-wide text-foreground/50">{label}</span>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <span className="text-sm">{value}</span>
     </div>
   );

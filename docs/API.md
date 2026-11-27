@@ -704,6 +704,17 @@ display names, consistent with how assignment/status/editing store
 these values (docs/DATABASE.md's `task_histories` section explains
 why `event_type` is a plain string rather than a closed enum).
 
+**`DELETE /organizations/{organization_id}/tasks/{task_id}` - permanent
+delete, gated by `TASK_CREATE_ASSIGN`** (Owner/Manager - the same people
+who may create and edit tasks; everyone else `403`, non-members and
+other organizations' tasks `404`). Requires the CSRF token. Distinct from
+the workflow's `cancelled` status, which keeps the record: this removes
+the task, and its comments and history with it (`ON DELETE CASCADE`).
+Notifications that pointed at the task are removed too, so none link to
+a missing record. The activity log is the audit trail and is **kept** -
+it gains a `task_deleted` entry with the task's title. Returns
+`{"data": null, "message": "Task deleted"}`.
+
 ## Customers (FD-035)
 
 Centralized in `backend/app/customers/`, all five endpoints gated by
@@ -1605,6 +1616,77 @@ frontend task in this backlog, FD-061's own title names no "frontend";
 documented gap, same precedent as Activity/Settings never getting
 pages).
 
+## Editing and deleting comments; deleting customer requests
+
+The same rules apply to task comments and customer-request comments
+(`backend/app/comment_rules.py`). Each call first passes the same access
+check as viewing the parent record, so a caller can only ever act on
+comments they can already see. A comment id that belongs to a different
+parent (or organization) is `404`.
+
+**`PATCH .../tasks/{task_id}/comments/{comment_id}`** and
+**`PATCH .../customer-requests/{request_id}/comments/{comment_id}`** -
+body `{"body": "..."}`. **Author only** - Owner/Manager included, nobody
+can rewrite someone else's words (`403`). Blank bodies are `422`. Comments
+now carry `edited_at` (`null` until edited).
+
+**`DELETE .../tasks/{task_id}/comments/{comment_id}`** and
+**`DELETE .../customer-requests/{request_id}/comments/{comment_id}`** -
+the author, or an Owner/Manager as moderator; anyone else `403`.
+
+**`DELETE /organizations/{organization_id}/customer-requests/{request_id}`**
+- permanent, **Owner/Manager only** (Customer Support and Employees
+`403`, even with full request access). Same model as task delete: comments
+and history go with it, its notifications are removed, and the activity
+log keeps a `request_deleted` entry with the title.
+
+`GET /organizations` memberships now also include `membership_id` (the
+caller's own membership in that organization), so the UI can recognise
+the caller's own comments.
+
+## Settings: organization, members, my account
+
+Backs the Settings page. Reuses the permission matrix's existing rules
+rather than adding new ones.
+
+**`PATCH /organizations/{organization_id}` - `ORGANIZATION_SETTINGS_MANAGE`.**
+Body: any of `name`, `logo`, `email`, `phone`, `address`, `currency`,
+`timezone`, `date_format`; only fields sent change. Owner (`full`): every
+field. Manager (`limited`): `logo`, `email`, `phone`, `address`,
+`date_format` only - sending `name`/`currency`/`timezone` is `403` with
+those fields named in `details`. Employee/Accountant/Customer Support:
+`403`. Unknown fields (`slug`, `id`, ...) are `422`. `timezone` must be a
+real IANA zone, `currency` three letters (stored upper-case), and
+`name`/`currency`/`timezone` can't be set to `null`. Logs
+`organization_updated` with the changed field names. Returns the
+organization.
+
+**`GET /organizations/{organization_id}/members` - `MEMBERSHIP_MANAGE`**
+(Owner/Manager). Every membership, including removed (`inactive`) ones so
+they can be restored: `membership_id`, `user_id`, `name`, `email`,
+`role`, `status`, `joined_at`. Active before removed, owners first.
+
+**`PATCH /organizations/{organization_id}/members/{membership_id}` -
+`MEMBERSHIP_MANAGE`.** Body: `role` and/or `status` (`active` /
+`inactive`). Reach is `can_assign_role` for both: never your own
+membership; a Manager only for Employee/Accountant/Customer Support
+members and only to one of those roles. Setting `inactive` removes
+access - every request the member makes in this organization then gets
+`404` - without deleting anything they created; `active` restores it.
+The organization must always keep at least one active Owner (`409
+LAST_OWNER`). Logs `member_role_changed` (`{from, to}`) /
+`member_access_removed` / `member_access_restored`.
+
+**`PATCH /auth/me`** - session + CSRF. Body `{"name": "..."}` only;
+email is the login identity and isn't changeable here (no
+email-verification flow yet). Blank names are `422`.
+
+**`POST /auth/change-password`** - session + CSRF, rate-limited 10/hour
+per IP. Body `{"current_password", "new_password"}`; a wrong current
+password is `400 INVALID_CURRENT_PASSWORD` (with
+`details.current_password`), a new password under 8 characters or equal
+to the current one is `422`. The current session stays signed in.
+
 ## Current endpoints
 
 | Method | Path | Purpose | Added in |
@@ -1613,8 +1695,13 @@ pages).
 | POST | `/api/v1/auth/login` | Verify credentials, start a session, return a CSRF token | FD-010 |
 | POST | `/api/v1/auth/logout` | Destroy the session (requires session + CSRF token) | FD-010 |
 | GET | `/api/v1/auth/me` | Current user's profile (no memberships yet — see below) | FD-011 |
+| PATCH | `/api/v1/auth/me` | Change your own display name | Settings |
+| POST | `/api/v1/auth/change-password` | Change your own password (current password required) | Settings |
 | POST | `/api/v1/organizations` | Create a business workspace, creator becomes Owner | FD-013 |
 | GET | `/api/v1/organizations` | List the caller's own organization memberships | FD-014 |
+| PATCH | `/api/v1/organizations/{organization_id}` | Update the organization profile (Owner all fields, Manager contact details) | Settings |
+| GET | `/api/v1/organizations/{organization_id}/members` | List every member, removed ones included (Owner/Manager) | Settings |
+| PATCH | `/api/v1/organizations/{organization_id}/members/{membership_id}` | Change a member's role or remove/restore their access | Settings |
 | POST | `/api/v1/organizations/{organization_id}/invitations` | Create and email an invitation | FD-016 |
 | GET | `/api/v1/organizations/{organization_id}/invitations` | List every invitation for the org | FD-016 |
 | DELETE | `/api/v1/organizations/{organization_id}/invitations/{invitation_id}` | Cancel a pending invitation | FD-016 |
@@ -1635,6 +1722,9 @@ pages).
 | POST | `/api/v1/organizations/{organization_id}/tasks/{task_id}/comments` | Post a comment on a task | FD-030 |
 | GET | `/api/v1/organizations/{organization_id}/tasks/{task_id}/comments` | List a task's comments, chronologically | FD-030 |
 | GET | `/api/v1/organizations/{organization_id}/tasks/{task_id}/history` | List a task's history, chronologically (read-only) | FD-031 |
+| PATCH | `/api/v1/organizations/{organization_id}/tasks/{task_id}/comments/{comment_id}` | Edit your own task comment | Comment edit |
+| DELETE | `/api/v1/organizations/{organization_id}/tasks/{task_id}/comments/{comment_id}` | Delete a task comment (author or Owner/Manager) | Comment edit |
+| DELETE | `/api/v1/organizations/{organization_id}/tasks/{task_id}` | Permanently delete a task with its comments/history (Owner/Manager) | Task delete |
 | POST | `/api/v1/organizations/{organization_id}/customers` | Create a customer | FD-035 |
 | GET | `/api/v1/organizations/{organization_id}/customers` | Search/filter/paginate the org's customers | FD-035 |
 | GET | `/api/v1/organizations/{organization_id}/customers/{customer_id}` | View one customer | FD-035 |
@@ -1648,6 +1738,9 @@ pages).
 | POST | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}/comments` | Post a comment on a customer request | FD-038 |
 | GET | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}/comments` | List a customer request's comments, chronologically | FD-038 |
 | GET | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}/history` | List a customer request's history, chronologically (read-only) | FD-038 |
+| PATCH | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}/comments/{comment_id}` | Edit your own request comment | Comment edit |
+| DELETE | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}/comments/{comment_id}` | Delete a request comment (author or Owner/Manager) | Comment edit |
+| DELETE | `/api/v1/organizations/{organization_id}/customer-requests/{request_id}` | Permanently delete a request with its comments/history (Owner/Manager) | Request delete |
 | POST | `/api/v1/organizations/{organization_id}/invoices` | Create a draft invoice (with line items) | FD-042 |
 | GET | `/api/v1/organizations/{organization_id}/invoices` | Search/filter/paginate the org's invoices (overdue auto-refreshed first) | FD-042 |
 | GET | `/api/v1/organizations/{organization_id}/invoices/{invoice_id}` | View one invoice | FD-042 |
@@ -1689,13 +1782,13 @@ pages).
 - Unknown/extra fields (e.g. `role`, `user_id`, `organization_id`) are rejected with `422`, not silently dropped — there's no way to specify a different owner or inject a role
 - `slug` is auto-generated from `name` (collision-handled with `-2`, `-3`, ... suffixes) — not accepted in the request
 - The `Organization` row and the creator's `Membership(role=owner)` row commit together in one transaction; a failure on either leaves neither persisted
-- No `GET`/`PATCH /organizations/{id}` yet — Section 11.1's endpoint outline lists them, but the backlog's own Epic E02 table has no separate task for them; only creation was assigned to FD-013. Flagging this as a backlog gap rather than inventing scope.
+- `PATCH /organizations/{id}` now exists (see "Settings" above); there's still no separate `GET /organizations/{id}` - each membership in `GET /organizations` already carries its organization.
 
 **`GET /organizations` specifics (FD-014):**
 - Requires a valid session (no CSRF token — it's a read)
 - Lists only the caller's *own* memberships, each with the organization's public data, the caller's `role` in it, `status`, and `joined_at` — scoped by `g.current_user`, never by a client-supplied `user_id`/`org_id`, so there's no cross-tenant surface by construction
 - A membership with status `inactive`/`suspended` still appears (with that status shown), rather than being silently filtered out — mirrors FR-009's "deactivation never deletes historical visibility," applied to membership here. This endpoint doesn't grant *access* to anything; once FD-015 (RBAC) builds org-scoped read/write endpoints, those must check `status == active` themselves — a non-active membership showing up in this list is not the same as it granting access elsewhere
-- Deliberately does **not** implement listing the *members of* a given organization (`GET /organizations/{id}/members`) — that requires deciding who can see other members, which is a permissions question for FD-015, not this task
+- Listing the *members of* an organization is `GET /organizations/{id}/members` (see "Settings" above), gated by `MEMBERSHIP_MANAGE`
 
 **Registration (`POST /auth/register`) specifics:**
 - Request: `{"name": "...", "email": "...", "password": "..."}` — `password` is 8–128 characters, no forced complexity rules (follows NIST 800-63B rather than inventing a policy the spec doesn't specify)

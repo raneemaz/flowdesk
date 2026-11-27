@@ -7,7 +7,9 @@ import { Link } from "react-router-dom";
 import { ApiError } from "@/api/client";
 import { createDepartment, deactivateDepartment, listDepartments, updateDepartment } from "@/api/departments";
 import { listEmployees } from "@/api/employees";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -53,33 +55,29 @@ export function DepartmentsPage() {
 
   if (!canManage) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background text-foreground">
+      <div className="flex flex-col items-center justify-center gap-3 px-6 py-24">
         <p role="alert" className="text-sm text-destructive">
           You don&apos;t have access to department management.
         </p>
         <Link to="/" className="text-sm font-medium text-primary hover:underline">
           Back to home
         </Link>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground">
-      <div className="mx-auto flex max-w-2xl flex-col gap-6">
-        <div className="flex items-center justify-between">
+    <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="flex max-w-3xl flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <h1 className="text-2xl font-semibold">Departments</h1>
-          <Link to="/" className="text-sm font-medium text-primary hover:underline">
-            Back to home
-          </Link>
+          <CreateDepartmentForm
+            organizationId={organizationId}
+            csrfToken={csrfToken}
+            managerOptions={employeesForNames?.employees ?? []}
+            onCreated={invalidate}
+          />
         </div>
-
-        <CreateDepartmentForm
-          organizationId={organizationId}
-          csrfToken={csrfToken}
-          managerOptions={employeesForNames?.employees ?? []}
-          onCreated={invalidate}
-        />
 
         {isPending && <p className="text-sm text-foreground/70">Loading departments…</p>}
 
@@ -109,7 +107,7 @@ export function DepartmentsPage() {
           </ul>
         )}
       </div>
-    </main>
+    </div>
   );
 }
 
@@ -136,14 +134,6 @@ function CreateDepartmentForm({
     defaultValues: { name: "", description: "", manager_membership_id: "" },
   });
 
-  if (!isOpen) {
-    return (
-      <Button type="button" variant="outline" className="self-start" onClick={() => setIsOpen(true)}>
-        + New department
-      </Button>
-    );
-  }
-
   const onSubmit = async (values: CreateDepartmentFormValues) => {
     if (!csrfToken) {
       setFormError("Your session is missing a CSRF token - please log in again.");
@@ -169,47 +159,60 @@ function CreateDepartmentForm({
   };
 
   return (
-    <form className="flex flex-col gap-4 rounded-md border border-border bg-card p-6" onSubmit={handleSubmit(onSubmit)} noValidate>
-      <h2 className="text-lg font-medium">New department</h2>
+    <>
+      <Button type="button" onClick={() => setIsOpen(true)}>
+        + New department
+      </Button>
+      <Dialog
+        open={isOpen}
+        onOpenChange={(open) => {
+          setIsOpen(open);
+          if (!open) setFormError(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New department</DialogTitle>
+          </DialogHeader>
+          <form className="flex flex-col gap-4" onSubmit={handleSubmit(onSubmit)} noValidate>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="new-name">Name</Label>
+              <Input id="new-name" aria-invalid={errors.name ? "true" : "false"} {...register("name")} />
+              {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+            </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="new-name">Name</Label>
-        <Input id="new-name" aria-invalid={errors.name ? "true" : "false"} {...register("name")} />
-        {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-      </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="new-description">Description (optional)</Label>
+              <Textarea id="new-description" {...register("description")} />
+            </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="new-description">Description (optional)</Label>
-        <Textarea id="new-description" {...register("description")} />
-      </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="new-manager">Manager (optional)</Label>
+              <Select id="new-manager" {...register("manager_membership_id")}>
+                <option value="">No manager</option>
+                {managerOptions.map((candidate) => (
+                  <option key={candidate.membership_id} value={candidate.membership_id}>
+                    {candidate.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="new-manager">Manager (optional)</Label>
-        <Select id="new-manager" {...register("manager_membership_id")}>
-          <option value="">No manager</option>
-          {managerOptions.map((candidate) => (
-            <option key={candidate.membership_id} value={candidate.membership_id}>
-              {candidate.name}
-            </option>
-          ))}
-        </Select>
-      </div>
+            {formError && (
+              <p role="alert" className="text-sm text-destructive">
+                {formError}
+              </p>
+            )}
 
-      {formError && (
-        <p role="alert" className="text-sm text-destructive">
-          {formError}
-        </p>
-      )}
-
-      <div className="flex gap-3">
-        <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Creating…" : "Create department"}
-        </Button>
-        <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
-          Cancel
-        </Button>
-      </div>
-    </form>
+            <DialogFooter>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "Creating…" : "Create department"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -269,15 +272,15 @@ function DepartmentRow({
     }
   };
 
+  const [isConfirmingDeactivate, setIsConfirmingDeactivate] = useState(false);
   const onDeactivate = async () => {
     if (!csrfToken) return;
-    if (!window.confirm(`Deactivate ${department.name}? Existing employee/task history referencing it is kept.`)) return;
     try {
       await deactivateDepartment(organizationId, department.id, csrfToken);
-      onChanged();
     } catch {
-      setFormError("Could not deactivate this department. Please try again.");
+      throw new Error("Could not deactivate this department. Please try again.");
     }
+    onChanged();
   };
 
   if (isEditing) {
@@ -335,8 +338,8 @@ function DepartmentRow({
   }
 
   return (
-    <li className="flex items-center justify-between rounded-md border border-border bg-card p-4">
-      <div className="flex flex-col gap-0.5">
+    <li className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-border bg-card p-4">
+      <div className="flex min-w-0 flex-1 basis-48 flex-col gap-0.5">
         <p className="font-medium">
           {department.name}{" "}
           {department.status === "inactive" && <span className="text-xs font-normal text-foreground/50">(inactive)</span>}
@@ -354,11 +357,20 @@ function DepartmentRow({
           Edit
         </Button>
         {department.status === "active" && (
-          <Button type="button" variant="destructive" size="sm" onClick={() => void onDeactivate()}>
+          <Button type="button" variant="destructive" size="sm" onClick={() => setIsConfirmingDeactivate(true)}>
             Deactivate
           </Button>
         )}
       </div>
+      <ConfirmDialog
+        open={isConfirmingDeactivate}
+        onOpenChange={setIsConfirmingDeactivate}
+        title={`Deactivate ${department.name}?`}
+        description="It can no longer be picked for new tasks or employees. Existing employee and task history that references it is kept."
+        confirmLabel="Deactivate"
+        destructive
+        onConfirm={onDeactivate}
+      />
     </li>
   );
 }

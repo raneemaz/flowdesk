@@ -260,4 +260,5 @@ def test_request_comment_to_public_dict_shape(db_session):
         "author_membership_id": None,
         "body": "Looked into it.",
         "created_at": comment.created_at.isoformat(),
+        "edited_at": None,
     }

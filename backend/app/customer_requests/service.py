@@ -488,6 +488,72 @@ def create_request_comment(
     return comment
 
 
+def _get_request_comment_or_404(
+    organization_id: uuid.UUID, request_id: uuid.UUID, comment_id: uuid.UUID
+) -> RequestComment:
+    comment = (
+        db.session.query(RequestComment)
+        .filter_by(id=comment_id, request_id=request_id, organization_id=organization_id)
+        .first()
+    )
+    if comment is None:
+        raise APIError("Not found.", status_code=404, code="NOT_FOUND")
+    return comment
+
+
+def edit_request_comment(
+    organization_id: uuid.UUID,
+    request_id: uuid.UUID,
+    comment_id: uuid.UUID,
+    *,
+    scope: PermissionScope,
+    actor,
+    body: str,
+) -> RequestComment:
+    """Author only (app.comment_rules). Same request reach check as posting."""
+    from app.comment_rules import require_can_edit
+
+    request = get_request(organization_id, request_id, scope=scope, caller_membership_id=actor.id)
+    comment = _get_request_comment_or_404(organization_id, request.id, comment_id)
+    require_can_edit(comment.author_membership_id, actor)
+    _set_comment_body(comment, body)
+    db.session.commit()
+    return comment
+
+
+def delete_request_comment(
+    organization_id: uuid.UUID, request_id: uuid.UUID, comment_id: uuid.UUID, *, scope: PermissionScope, actor
+) -> None:
+    """Author, or Owner/Manager as moderators (app.comment_rules)."""
+    from app.comment_rules import require_can_delete
+
+    request = get_request(organization_id, request_id, scope=scope, caller_membership_id=actor.id)
+    comment = _get_request_comment_or_404(organization_id, request.id, comment_id)
+    require_can_delete(comment.author_membership_id, actor)
+    db.session.delete(comment)
+    db.session.commit()
+
+
+def delete_request(organization_id: uuid.UUID, request_id: uuid.UUID, *, actor) -> None:
+    """Permanent delete, Owner/Manager only - same model as task delete.
+    Comments and history go with it (ON DELETE CASCADE); notifications
+    pointing at it are removed so none link to a missing record; the
+    activity log keeps a `request_deleted` entry with the title."""
+    from app.comment_rules import require_moderator
+    from app.models import Notification
+
+    require_moderator(actor, "delete a customer request")
+    request = get_request_or_404(organization_id, request_id)
+    log_activity(
+        organization_id, actor.id, "request_deleted", "customer_request", request.id, metadata={"title": request.title}
+    )
+    db.session.query(Notification).filter_by(
+        organization_id=organization_id, entity_type="customer_request", entity_id=request.id
+    ).delete(synchronize_session=False)
+    db.session.delete(request)
+    db.session.commit()
+
+
 def list_request_comments(
     organization_id: uuid.UUID,
     request_id: uuid.UUID,

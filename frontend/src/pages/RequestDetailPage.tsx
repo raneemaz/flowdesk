@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
 import { getCustomer } from "@/api/customers";
@@ -13,8 +13,13 @@ import {
   listRequestComments,
   listRequestHistory,
   updateRequestStatus,
+  deleteRequest,
+  deleteRequestComment,
+  updateRequestComment,
 } from "@/api/customerRequests";
 import { listEmployees } from "@/api/employees";
+import { CommentItem } from "@/components/CommentItem";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -38,6 +43,12 @@ export function RequestDetailPage() {
   const { activeMembership } = useOrganization();
   const organizationId = activeMembership?.organization.id ?? "";
   const canManage = activeMembership ? canManageRequests(activeMembership.role) : false;
+  // Permanently deleting a request, and moderating others' comments, is
+  // Owner/Manager only (backend: app/comment_rules.py).
+  const isModerator = activeMembership?.role === "owner" || activeMembership?.role === "manager";
+  const myMembershipId = activeMembership?.membership_id;
+  const navigate = useNavigate();
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const canSeeCustomer = activeMembership ? canManageCustomers(activeMembership.role) : false;
   const queryClient = useQueryClient();
 
@@ -153,22 +164,22 @@ export function RequestDetailPage() {
 
   if (isPending) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background text-foreground">
+      <div className="flex items-center justify-center px-6 py-24">
         <p className="text-sm text-foreground/70">Loading request…</p>
-      </main>
+      </div>
     );
   }
 
   if (isError || !request) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background text-foreground">
+      <div className="flex flex-col items-center justify-center gap-3 px-6 py-24">
         <p role="alert" className="text-sm text-destructive">
           {error instanceof ApiError ? error.message : "Request not found."}
         </p>
         <Link to="/requests" className="text-sm font-medium text-primary hover:underline">
           Back to requests
         </Link>
-      </main>
+      </div>
     );
   }
 
@@ -187,16 +198,48 @@ export function RequestDetailPage() {
   };
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground">
-      <div className="mx-auto flex max-w-2xl flex-col gap-6">
-        <div className="flex items-center justify-between">
+    <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="flex max-w-3xl flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <h1 className="text-2xl font-semibold">{request.title}</h1>
-          <Link to="/requests" className="text-sm font-medium text-primary hover:underline">
-            Back to requests
-          </Link>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {isModerator && (
+              <Button type="button" variant="outline" className="text-destructive" onClick={() => setIsConfirmingDelete(true)}>
+                Delete request
+              </Button>
+            )}
+            <Link to="/requests" className="text-sm font-medium text-primary hover:underline">
+              Back to requests
+            </Link>
+          </div>
         </div>
 
-        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-6">
+        {isModerator && (
+          <ConfirmDialog
+            open={isConfirmingDelete}
+            onOpenChange={setIsConfirmingDelete}
+            title="Delete this request?"
+            description={
+              <>
+                “{request.title}” and its comments and history will be permanently deleted. This can’t be undone.
+              </>
+            }
+            confirmLabel="Delete request"
+            destructive
+            onConfirm={async () => {
+              try {
+                await deleteRequest(organizationId, request.id, csrfToken ?? "");
+              } catch (deleteError) {
+                throw new Error(deleteError instanceof ApiError ? deleteError.message : "Could not delete the request.");
+              }
+              queryClient.removeQueries({ queryKey: requestQueryKey });
+              await queryClient.invalidateQueries({ queryKey: ["requests", organizationId] });
+              navigate("/requests", { replace: true });
+            }}
+          />
+        )}
+
+        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:p-6">
           {canSeeCustomer && (
             <Field
               label="Customer"
@@ -223,7 +266,7 @@ export function RequestDetailPage() {
         </div>
 
         {canManage && (
-          <div className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-6">
+          <div className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-4 sm:p-6">
             <Label htmlFor="assign-select">Assignee</Label>
             <Select
               id="assign-select"
@@ -245,7 +288,7 @@ export function RequestDetailPage() {
           </div>
         )}
 
-        <div className="flex flex-col gap-2 rounded-md border border-border bg-card p-6">
+        <div className="flex flex-col gap-2 rounded-md border border-border bg-card p-4 sm:p-6">
           <p className="text-sm font-medium">Move to:</p>
           <div className="flex flex-wrap gap-2">
             {nextStatuses.length === 0 && <p className="text-sm text-foreground/70">No further status changes available.</p>}
@@ -263,7 +306,7 @@ export function RequestDetailPage() {
         </div>
 
         <form
-          className="flex flex-col gap-2 rounded-md border border-border bg-card p-6"
+          className="flex flex-col gap-2 rounded-md border border-border bg-card p-4 sm:p-6"
           onSubmit={notesForm.handleSubmit(onSaveNotes)}
           noValidate
         >
@@ -279,19 +322,32 @@ export function RequestDetailPage() {
           </Button>
         </form>
 
-        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-6">
+        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:p-6">
           <h2 className="text-lg font-medium">Comments</h2>
           <div className="flex flex-col gap-3">
             {(commentsData?.comments ?? []).length === 0 && <p className="text-sm text-foreground/70">No comments yet.</p>}
-            {(commentsData?.comments ?? []).map((comment) => (
-              <div key={comment.id} className="rounded-md border border-border p-3">
-                <p className="text-xs font-medium text-foreground/70">
-                  {comment.author_membership_id ? (nameById.get(comment.author_membership_id) ?? "Unknown") : "Unknown"} ·{" "}
-                  {new Date(comment.created_at).toLocaleString()}
-                </p>
-                <p className="text-sm">{comment.body}</p>
-              </div>
-            ))}
+            {(commentsData?.comments ?? []).map((comment) => {
+              const isMine = Boolean(myMembershipId) && comment.author_membership_id === myMembershipId;
+              return (
+                <CommentItem
+                  key={comment.id}
+                  comment={comment}
+                  authorName={
+                    comment.author_membership_id ? (nameById.get(comment.author_membership_id) ?? "A former member") : "A former member"
+                  }
+                  canEdit={isMine}
+                  canDelete={isMine || isModerator}
+                  onSave={async (body) => {
+                    await updateRequestComment(organizationId, request.id, comment.id, body, csrfToken ?? "");
+                    await queryClient.invalidateQueries({ queryKey: ["request-comments", organizationId, requestId] });
+                  }}
+                  onDelete={async () => {
+                    await deleteRequestComment(organizationId, request.id, comment.id, csrfToken ?? "");
+                    await queryClient.invalidateQueries({ queryKey: ["request-comments", organizationId, requestId] });
+                  }}
+                />
+              );
+            })}
           </div>
           <form className="flex flex-col gap-2" onSubmit={commentForm.handleSubmit(onCommentSubmit)} noValidate>
             <Label htmlFor="comment-body" className="sr-only">
@@ -312,7 +368,7 @@ export function RequestDetailPage() {
           </form>
         </div>
 
-        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-6">
+        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:p-6">
           <h2 className="text-lg font-medium">History</h2>
           {(historyData?.entries ?? []).length === 0 && <p className="text-sm text-foreground/70">No history yet.</p>}
           <ul className="flex flex-col gap-2">
@@ -334,14 +390,14 @@ export function RequestDetailPage() {
           </ul>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 
 function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs font-medium uppercase tracking-wide text-foreground/50">{label}</span>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <span className="text-sm">{value}</span>
     </div>
   );

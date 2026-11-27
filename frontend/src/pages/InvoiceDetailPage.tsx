@@ -132,36 +132,36 @@ export function InvoiceDetailPage() {
 
   if (isPending) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background text-foreground">
+      <div className="flex items-center justify-center px-6 py-24">
         <p className="text-sm text-foreground/70">Loading invoice…</p>
-      </main>
+      </div>
     );
   }
 
   if (isError || !invoice) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background text-foreground">
+      <div className="flex flex-col items-center justify-center gap-3 px-6 py-24">
         <p role="alert" className="text-sm text-destructive">
           {error instanceof ApiError ? error.message : "Invoice not found."}
         </p>
         <Link to="/invoices" className="text-sm font-medium text-primary hover:underline">
           Back to invoices
         </Link>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground">
-      <div className="mx-auto flex max-w-2xl flex-col gap-6">
-        <div className="flex items-center justify-between">
+    <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="flex max-w-3xl flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <h1 className="text-2xl font-semibold">Invoice {invoice.invoice_number}</h1>
           <Link to="/invoices" className="text-sm font-medium text-primary hover:underline">
             Back to invoices
           </Link>
         </div>
 
-        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-6">
+        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:p-6">
           <Field label="Status" value={STATUS_LABELS[invoice.status]} />
           <Field label="Customer" value={customer ? customer.name : "—"} />
           <Field label="Issue date" value={invoice.issue_date ?? "—"} />
@@ -171,7 +171,7 @@ export function InvoiceDetailPage() {
         </div>
 
         {canManage && (
-          <div className="flex flex-wrap gap-3 rounded-md border border-border bg-card p-6">
+          <div className="flex flex-wrap gap-3 rounded-md border border-border bg-card p-4 sm:p-6">
             {canEditInvoice(invoice.status) && (
               <Button asChild variant="outline" size="sm">
                 <Link to={`/invoices/${invoice.id}/edit`}>Edit</Link>
@@ -200,32 +200,34 @@ export function InvoiceDetailPage() {
           </div>
         )}
 
-        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-6">
+        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:p-6">
           <h2 className="text-lg font-medium">Line items</h2>
           {(lineItems ?? []).length === 0 && <p className="text-sm text-foreground/70">No line items.</p>}
           {(lineItems ?? []).length > 0 && (
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="py-1 font-medium">Description</th>
-                  <th className="py-1 text-right font-medium">Qty</th>
-                  <th className="py-1 text-right font-medium">Unit price</th>
-                  <th className="py-1 text-right font-medium">Tax</th>
-                  <th className="py-1 text-right font-medium">Line total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(lineItems ?? []).map((item) => (
-                  <tr key={item.id} className="border-b border-border/50">
-                    <td className="py-1">{item.description}</td>
-                    <td className="py-1 text-right">{item.quantity}</td>
-                    <td className="py-1 text-right">{item.unit_price}</td>
-                    <td className="py-1 text-right">{item.tax_rate ? `${item.tax_rate}%` : "—"}</td>
-                    <td className="py-1 text-right">{item.line_total}</td>
+            <div className="relative -mx-1 overflow-x-auto px-1">
+              <table className="w-full text-left text-sm [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap [&_td:not(:first-child)]:pl-4 [&_th:not(:first-child)]:pl-4">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="py-1 font-medium">Description</th>
+                    <th className="py-1 text-right font-medium">Qty</th>
+                    <th className="py-1 text-right font-medium">Unit price</th>
+                    <th className="py-1 text-right font-medium">Tax</th>
+                    <th className="py-1 text-right font-medium">Line total</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {(lineItems ?? []).map((item) => (
+                    <tr key={item.id} className="border-b border-border/50">
+                      <td className="py-1">{item.description}</td>
+                      <td className="py-1 text-right">{item.quantity}</td>
+                      <td className="py-1 text-right">{item.unit_price}</td>
+                      <td className="py-1 text-right">{item.tax_rate ? `${item.tax_rate}%` : "—"}</td>
+                      <td className="py-1 text-right">{item.line_total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           <div className="ml-auto flex w-64 flex-col gap-1 text-sm">
             <TotalRow label="Subtotal" value={`${invoice.currency} ${invoice.subtotal}`} />
@@ -235,7 +237,7 @@ export function InvoiceDetailPage() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-6">
+        <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:p-6">
           <h2 className="text-lg font-medium">Payments</h2>
           <div className="ml-auto flex w-64 flex-col gap-1 text-sm">
             <TotalRow label="Amount paid" value={formatMoney(amountPaid, invoice.currency)} />
@@ -308,14 +310,14 @@ export function InvoiceDetailPage() {
           )}
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs font-medium uppercase tracking-wide text-foreground/50">{label}</span>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <span className="text-sm">{value}</span>
     </div>
   );

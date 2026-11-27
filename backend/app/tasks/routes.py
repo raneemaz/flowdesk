@@ -16,6 +16,9 @@ from app.tasks.schemas import (
     UpdateTaskStatusRequest,
 )
 from app.tasks.service import (
+    delete_task,
+    delete_task_comment,
+    edit_task_comment,
     assign_task,
     create_task,
     create_task_comment,
@@ -150,6 +153,17 @@ def patch_task(organization_id, task_id):
     return jsonify(body), 200
 
 
+@tasks_bp.route("/organizations/<uuid:organization_id>/tasks/<uuid:task_id>", methods=["DELETE"])
+@login_required
+@csrf_protect
+@require_permission(Permission.TASK_CREATE_ASSIGN)
+def remove_task(organization_id, task_id):
+    """Owner/Manager only (TASK_CREATE_ASSIGN) - the same people who may
+    create and edit tasks. Permanent: see delete_task's docstring."""
+    delete_task(organization_id, task_id, actor_membership_id=g.current_membership.id)
+    return jsonify({"success": True, "message": "Task deleted", "data": None}), 200
+
+
 @tasks_bp.route("/organizations/<uuid:organization_id>/tasks/<uuid:task_id>/assign", methods=["PATCH"])
 @login_required
 @csrf_protect
@@ -241,6 +255,39 @@ def post_task_comments(organization_id, task_id):
 
     body = {"success": True, "message": "Comment created", "data": comment.to_public_dict()}
     return jsonify(body), 201
+
+
+@tasks_bp.route(
+    "/organizations/<uuid:organization_id>/tasks/<uuid:task_id>/comments/<uuid:comment_id>", methods=["PATCH"]
+)
+@login_required
+@csrf_protect
+@require_permission(Permission.TASK_VIEW_UPDATE)
+def patch_task_comment(organization_id, task_id, comment_id):
+    payload = request.get_json(silent=True)
+    if payload is None:
+        raise APIError("Request body must be valid JSON.", status_code=400, code="BAD_REQUEST")
+    try:
+        data = CreateTaskCommentRequest.model_validate(payload)
+    except ValidationError as exc:
+        raise APIError(
+            "Validation failed", status_code=422, code="VALIDATION_ERROR", details=validation_error_details(exc)
+        )
+    comment = edit_task_comment(
+        organization_id, task_id, comment_id, scope=g.permission_scope, actor=g.current_membership, body=data.body
+    )
+    return jsonify({"success": True, "message": "Comment updated", "data": comment.to_public_dict()}), 200
+
+
+@tasks_bp.route(
+    "/organizations/<uuid:organization_id>/tasks/<uuid:task_id>/comments/<uuid:comment_id>", methods=["DELETE"]
+)
+@login_required
+@csrf_protect
+@require_permission(Permission.TASK_VIEW_UPDATE)
+def remove_task_comment(organization_id, task_id, comment_id):
+    delete_task_comment(organization_id, task_id, comment_id, scope=g.permission_scope, actor=g.current_membership)
+    return jsonify({"success": True, "message": "Comment deleted", "data": None}), 200
 
 
 @tasks_bp.route("/organizations/<uuid:organization_id>/tasks/<uuid:task_id>/comments", methods=["GET"])

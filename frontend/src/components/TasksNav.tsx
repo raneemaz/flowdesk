@@ -17,7 +17,7 @@ export function TasksNav() {
   const location = useLocation();
 
   return (
-    <nav className="flex gap-1 border-b border-border">
+    <nav className="flex gap-1 overflow-x-auto whitespace-nowrap border-b border-border [scrollbar-width:none]">
       {TABS.map((tab) => {
         const isActive = location.pathname === tab.to;
         return (

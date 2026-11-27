@@ -85,6 +85,24 @@ describe("MyTasksPage", () => {
     );
   });
 
+  it("uses the membership id it already has instead of searching the directory", async () => {
+    vi.spyOn(authApi, "getCurrentUser").mockResolvedValue(USER);
+    vi.spyOn(organizationsApi, "listOrganizations").mockResolvedValue([{ ...membership("owner"), membership_id: "m1" }]);
+    const listEmployeesSpy = vi.spyOn(employeesApi, "listEmployees");
+    const listSpy = vi.spyOn(tasksApi, "listTasks").mockResolvedValue({
+      tasks: [],
+      meta: { page: 1, per_page: 20, total: 0, total_pages: 0 },
+    });
+
+    renderPage();
+
+    await waitFor(() => expect(listSpy).toHaveBeenCalledWith("org-1", expect.objectContaining({ assigneeMembershipId: "m1" })));
+    // Never fetched unfiltered, and the id didn't come from an email search
+    // (the only directory call is the list's own name lookup).
+    expect(listSpy.mock.calls.every(([, filters]) => filters?.assigneeMembershipId === "m1")).toBe(true);
+    expect(listEmployeesSpy.mock.calls.length).toBeLessThanOrEqual(1);
+  });
+
   it("does not need a lookup for a non-manager - the backend already restricts their list", async () => {
     mockAuthenticated("employee");
     const listTasksSpy = vi.spyOn(tasksApi, "listTasks").mockResolvedValue({

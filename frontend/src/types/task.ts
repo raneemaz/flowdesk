@@ -26,6 +26,8 @@ export interface TaskCommentPublic {
   author_membership_id: string | null;
   body: string;
   created_at: string;
+  /** Set once the comment has been edited. */
+  edited_at?: string | null;
 }
 
 export interface TaskHistoryPublic {

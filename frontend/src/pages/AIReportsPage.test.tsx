@@ -1,10 +1,12 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 
 import * as aiReportsApi from "@/api/aiReports";
 import * as authApi from "@/api/auth";
+import { ApiError } from "@/api/client";
 import * as organizationsApi from "@/api/organizations";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { OrganizationProvider } from "@/contexts/OrganizationContext";
@@ -126,5 +128,46 @@ describe("AIReportsPage", () => {
     expect(await screen.findByText("Page 1 of 2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
+  });
+
+  it("generates a report on demand via the Generate now dialog", async () => {
+    mockAuthenticated();
+    vi.spyOn(aiReportsApi, "listAIReports").mockResolvedValue({
+      reports: [],
+      meta: { page: 1, per_page: 20, total: 0, total_pages: 0 },
+    });
+    const generateSpy = vi.spyOn(aiReportsApi, "generateAIReport").mockResolvedValue(REPORT);
+    const user = userEvent.setup();
+
+    renderPage();
+    await screen.findByText(/No AI reports yet/);
+
+    await user.click(screen.getByRole("button", { name: "Generate now" }));
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+
+    await waitFor(() =>
+      expect(generateSpy).toHaveBeenCalledWith("org-1", { period: "last_7_days", period_start: undefined, period_end: undefined }, "csrf-abc"),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("shows the backend's error when generation fails", async () => {
+    mockAuthenticated();
+    vi.spyOn(aiReportsApi, "listAIReports").mockResolvedValue({
+      reports: [],
+      meta: { page: 1, per_page: 20, total: 0, total_pages: 0 },
+    });
+    vi.spyOn(aiReportsApi, "generateAIReport").mockRejectedValue(
+      new ApiError(502, "AI_GENERATION_FAILED", "The AI report could not be generated.", {}),
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+    await screen.findByText(/No AI reports yet/);
+
+    await user.click(screen.getByRole("button", { name: "Generate now" }));
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The AI report could not be generated.");
   });
 });

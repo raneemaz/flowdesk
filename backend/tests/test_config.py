@@ -47,6 +47,19 @@ def test_production_requires_redis_url(monkeypatch):
         create_app("production")
 
 
+def test_production_requires_frontend_origin(monkeypatch):
+    # FD-065: the dev default (localhost:5173) would otherwise silently
+    # become production's own CORS allow-list.
+    monkeypatch.setenv("FLASK_SECRET_KEY", "a-real-production-secret")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("REDIS_URL", "redis://example:6379/0")
+    monkeypatch.delenv("FRONTEND_ORIGIN", raising=False)
+
+    with pytest.raises(RuntimeError):
+        create_app("production")
+
+
 def test_development_config_has_debug_enabled():
     app = create_app("development")
 

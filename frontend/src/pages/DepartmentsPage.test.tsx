@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -140,11 +140,11 @@ describe("DepartmentsPage", () => {
       ...SALES_DEPARTMENT,
       status: "inactive",
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
 
     renderPage();
     await user.click(await screen.findByRole("button", { name: "Deactivate" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Deactivate" }));
 
     await waitFor(() => expect(deactivateSpy).toHaveBeenCalledWith("org-1", "d1", "csrf-abc"));
   });
@@ -157,12 +157,13 @@ describe("DepartmentsPage", () => {
       meta: { page: 1, per_page: 100, total: 1, total_pages: 1 },
     });
     const deactivateSpy = vi.spyOn(departmentsApi, "deactivateDepartment");
-    vi.spyOn(window, "confirm").mockReturnValue(false);
     const user = userEvent.setup();
 
     renderPage();
     await user.click(await screen.findByRole("button", { name: "Deactivate" }));
+    await user.click(await screen.findByRole("button", { name: "Keep it" }));
 
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(deactivateSpy).not.toHaveBeenCalled();
   });
 });

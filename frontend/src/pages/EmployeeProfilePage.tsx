@@ -98,31 +98,31 @@ export function EmployeeProfilePage() {
 
   if (isPending) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background text-foreground">
+      <div className="flex items-center justify-center px-6 py-24">
         <p className="text-sm text-foreground/70">Loading employee…</p>
-      </main>
+      </div>
     );
   }
 
   if (isError || !employee) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background text-foreground">
+      <div className="flex flex-col items-center justify-center gap-3 px-6 py-24">
         <p role="alert" className="text-sm text-destructive">
           {error instanceof ApiError ? error.message : "Employee not found."}
         </p>
         <Link to="/employees" className="text-sm font-medium text-primary hover:underline">
           Back to directory
         </Link>
-      </main>
+      </div>
     );
   }
 
   const isFullScope = "email" in employee;
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground">
-      <div className="mx-auto flex max-w-lg flex-col gap-6">
-        <div className="flex items-center justify-between">
+    <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="flex max-w-3xl flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <h1 className="text-2xl font-semibold">{employee.name}</h1>
           <Link to="/employees" className="text-sm font-medium text-primary hover:underline">
             Back to directory
@@ -132,7 +132,7 @@ export function EmployeeProfilePage() {
         {successMessage && <p className="text-sm text-foreground/70">{successMessage}</p>}
 
         {!isEditing && (
-          <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-6">
+          <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:p-6">
             <Field label="Role" value={ROLE_LABELS[employee.role]} />
             <Field label="Status" value={employee.status ?? "Not set"} />
             {isFullScope && <Field label="Email" value={employee.email ?? "—"} />}
@@ -150,7 +150,7 @@ export function EmployeeProfilePage() {
 
         {isEditing && (
           <form
-            className="flex flex-col gap-4 rounded-md border border-border bg-card p-6"
+            className="flex flex-col gap-4 rounded-md border border-border bg-card p-4 sm:p-6"
             onSubmit={handleSubmit(onSubmit)}
             noValidate
           >
@@ -216,14 +216,14 @@ export function EmployeeProfilePage() {
           </form>
         )}
       </div>
-    </main>
+    </div>
   );
 }
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs font-medium uppercase tracking-wide text-foreground/50">{label}</span>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <span className="text-sm">{value}</span>
     </div>
   );

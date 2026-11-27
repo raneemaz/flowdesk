@@ -68,6 +68,30 @@ describe("apiFetch", () => {
       expect(error).toBeInstanceOf(Error);
     }
   });
+
+  it("turns a request that exceeds its time limit into a TIMEOUT ApiError", async () => {
+    // A fetch that never answers until its abort signal fires.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+          }),
+      ),
+    );
+
+    await expect(apiFetch("/slow", { timeoutMs: 20 })).rejects.toMatchObject({ code: "TIMEOUT", status: 0 });
+  });
+
+  it("attaches a time limit to every request by default", async () => {
+    mockFetchOnce({ success: true, message: "ok", data: null });
+
+    await apiFetch("/auth/me");
+
+    const [, options] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+  });
 });
 
 describe("apiFetchWithMeta", () => {

@@ -1,0 +1,77 @@
+name: CI
+
+# FD-065. Render/Vercel deploy automatically on push to the connected
+# branch regardless of this workflow's own result - this is a PR/push
+# gate (tests must pass), not the deploy mechanism itself. `main` and
+# `master` both trigger since the project's own git remote isn't fixed
+# on one name yet.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: flowdesk
+          POSTGRES_PASSWORD: flowdesk_ci
+          POSTGRES_DB: flowdesk_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      FLASK_ENV: testing
+      FLASK_SECRET_KEY: ci-test-secret-not-for-production
+      TEST_DATABASE_URL: postgresql+psycopg://flowdesk:flowdesk_ci@localhost:5432/flowdesk_test
+      FLASK_APP: wsgi.py
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # WeasyPrint (FD-045 invoice PDFs) needs a system GTK3 runtime -
+      # same package list as backend/Dockerfile's own apt-get install.
+      - name: Install WeasyPrint's system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpango-1.0-0 libpangoft2-1.0-0 libpangocairo-1.0-0 \
+            libcairo2 libgdk-pixbuf2.0-0 libffi8 shared-mime-info fonts-liberation
+      - name: Install Python dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Apply migrations to the test database
+        run: python -m flask db upgrade
+      - name: Run backend tests
+        run: python -m pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit/integration tests
+        run: npm run test
+      - name: Build
+        run: npm run build

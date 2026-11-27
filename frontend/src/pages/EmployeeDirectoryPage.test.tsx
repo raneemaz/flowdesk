@@ -7,6 +7,7 @@ import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import * as authApi from "@/api/auth";
 import * as departmentsApi from "@/api/departments";
 import * as employeesApi from "@/api/employees";
+import * as invitationsApi from "@/api/invitations";
 import * as organizationsApi from "@/api/organizations";
 import { ApiError } from "@/api/client";
 import { AuthProvider } from "@/contexts/AuthContext";
@@ -160,5 +161,52 @@ describe("EmployeeDirectoryPage", () => {
     renderPage();
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Not found.");
+  });
+
+  it("lets an Owner invite a new employee", async () => {
+    mockAuthenticated("owner");
+    sessionStorage.setItem("flowdesk:csrf_token", "csrf-abc");
+    vi.spyOn(employeesApi, "listEmployees").mockResolvedValue({
+      employees: [],
+      meta: { page: 1, per_page: 20, total: 0, total_pages: 0 },
+    });
+    vi.spyOn(departmentsApi, "listDepartments").mockResolvedValue([]);
+    vi.spyOn(invitationsApi, "listInvitations").mockResolvedValue([]);
+    const createSpy = vi.spyOn(invitationsApi, "createInvitation").mockResolvedValue({
+      id: "inv-1",
+      email: "new@example.com",
+      role: "employee",
+      status: "pending",
+      expires_at: "2026-01-20T00:00:00Z",
+      accepted_at: null,
+      cancelled_at: null,
+      inviter_id: "m-owner",
+      created_at: "2026-01-13T00:00:00Z",
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "+ Invite employee" }));
+    await user.type(screen.getByLabelText("Email"), "new@example.com");
+    await user.click(screen.getByRole("button", { name: "Send invitation" }));
+
+    await waitFor(() =>
+      expect(createSpy).toHaveBeenCalledWith("org-1", { email: "new@example.com", role: "owner" }, "csrf-abc"),
+    );
+    expect(await screen.findByText("Invitation sent to new@example.com.")).toBeInTheDocument();
+  });
+
+  it("hides the invite button entirely for a role that can't invite", async () => {
+    mockAuthenticated("employee");
+    vi.spyOn(employeesApi, "listEmployees").mockResolvedValue({
+      employees: [{ membership_id: "m1", name: "Bea", role: "employee", status: "active" }],
+      meta: { page: 1, per_page: 20, total: 1, total_pages: 1 },
+    });
+
+    renderPage();
+
+    await screen.findByText("Bea");
+    expect(screen.queryByRole("button", { name: "+ Invite employee" })).not.toBeInTheDocument();
   });
 });

@@ -3,7 +3,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
-import { listNotifications, markAllNotificationsRead, markNotificationRead } from "@/api/notifications";
+import {
+  listNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  type NotificationListResult,
+} from "@/api/notifications";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -65,11 +70,40 @@ export function NotificationsPage() {
       return;
     }
     setActionError(null);
+
+    // Optimistic: show it read (and the unread count one lower) right
+    // away instead of after the round trip, then reconcile with the
+    // server either way. On failure the snapshots are put back.
+    await queryClient.cancelQueries({ queryKey: ["notifications", organizationId] });
+    const previousList = queryClient.getQueryData<NotificationListResult>(queryKey);
+    const previousCount = queryClient.getQueryData<NotificationListResult>(["notifications-unread-count", organizationId]);
+    const target = previousList?.notifications.find((notification) => notification.id === notificationId);
+    if (previousList && target && !target.read_at) {
+      const now = new Date().toISOString();
+      queryClient.setQueryData<NotificationListResult>(queryKey, {
+        ...previousList,
+        notifications: unreadOnly
+          ? previousList.notifications.filter((notification) => notification.id !== notificationId)
+          : previousList.notifications.map((notification) =>
+              notification.id === notificationId ? { ...notification, read_at: now } : notification,
+            ),
+      });
+      if (previousCount) {
+        queryClient.setQueryData<NotificationListResult>(["notifications-unread-count", organizationId], {
+          ...previousCount,
+          meta: { ...previousCount.meta, total: Math.max(0, previousCount.meta.total - 1) },
+        });
+      }
+    }
+
     try {
       await markNotificationRead(organizationId, notificationId, csrfToken);
-      invalidate();
     } catch {
+      if (previousList) queryClient.setQueryData(queryKey, previousList);
+      if (previousCount) queryClient.setQueryData(["notifications-unread-count", organizationId], previousCount);
       setActionError("Could not mark that notification read. Please try again.");
+    } finally {
+      invalidate();
     }
   };
 
@@ -88,13 +122,10 @@ export function NotificationsPage() {
   };
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground">
-      <div className="mx-auto flex max-w-2xl flex-col gap-6">
-        <div className="flex items-center justify-between">
+    <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="flex max-w-3xl flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <h1 className="text-2xl font-semibold">Notifications</h1>
-          <Link to="/" className="text-sm font-medium text-primary hover:underline">
-            Back to home
-          </Link>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -154,7 +185,7 @@ export function NotificationsPage() {
           </div>
         )}
       </div>
-    </main>
+    </div>
   );
 }
 

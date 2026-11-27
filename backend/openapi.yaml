@@ -152,6 +152,117 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+    patch:
+      tags: [Auth]
+      summary: Change your own display name
+      description: >
+        Settings > My account. Only name; email is the login identity
+        and is not changeable here. Blank names are 422.
+      operationId: patchAuthMe
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 255 }
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/UserPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing or invalid CSRF token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/change-password:
+    post:
+      tags: [Auth]
+      summary: Change your own password
+      description: >
+        Requires the current password. Rate-limited to 10 per hour per IP.
+        The current session stays signed in.
+      operationId: postAuthChangePassword
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [current_password, new_password]
+              properties:
+                current_password: { type: string, minLength: 1, maxLength: 128 }
+                new_password: { type: string, minLength: 8, maxLength: 128 }
+      responses:
+        "200":
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+        "400":
+          description: Current password is incorrect (INVALID_CURRENT_PASSWORD)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Missing or invalid CSRF token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: New password too short, or the same as the current one
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Too many attempts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /auth/register:
     post:
       tags: [Auth]
@@ -298,6 +409,216 @@ paths:
                           $ref: "#/components/schemas/MembershipPublic"
         "401":
           description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Organizations]
+      summary: Update the organization profile
+      description: >
+        Settings > Organization. Only fields sent change. The Owner may
+        change every field; a Manager only logo/email/phone/address/
+        date_format (403 naming the owner-only fields). Other roles 403,
+        non-members 404. Unknown fields are 422.
+      operationId: patchOrganization
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 255 }
+                logo: { type: string, maxLength: 2048, nullable: true }
+                email: { type: string, format: email, nullable: true }
+                phone: { type: string, maxLength: 50, nullable: true }
+                address: { type: string, nullable: true }
+                currency: { type: string, minLength: 3, maxLength: 3 }
+                timezone: { type: string, description: IANA timezone name }
+                date_format: { type: string, maxLength: 32, nullable: true }
+      responses:
+        "200":
+          description: Updated organization
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/OrganizationPublic"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Not allowed to change these fields
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not a member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/members:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Organizations]
+      summary: List members
+      description: >
+        Every membership including removed (inactive) ones, active first,
+        owners first. Owner/Manager only (MEMBERSHIP_MANAGE).
+      operationId: listOrganizationMembers
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Members
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            membership_id: { type: string, format: uuid }
+                            user_id: { type: string, format: uuid }
+                            name: { type: string }
+                            email: { type: string, format: email }
+                            role: { type: string, enum: [owner, manager, employee, accountant, customer_support] }
+                            status: { type: string, enum: [active, inactive, suspended] }
+                            joined_at: { type: string, format: date-time }
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Not Owner/Manager
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not a member of this organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/members/{membership_id}:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: membership_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Organizations]
+      summary: Change a member role or access
+      description: >
+        Role and/or status (inactive removes access, active restores it).
+        Never your own membership; a Manager only for, and only to,
+        Employee/Accountant/Customer Support. At least one active Owner
+        must remain (409 LAST_OWNER).
+      operationId: patchOrganizationMember
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                role: { type: string, enum: [owner, manager, employee, accountant, customer_support] }
+                status: { type: string, enum: [active, inactive, suspended] }
+      responses:
+        "200":
+          description: Updated member
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          membership_id: { type: string, format: uuid }
+                          user_id: { type: string, format: uuid }
+                          name: { type: string }
+                          email: { type: string, format: email }
+                          role: { type: string, enum: [owner, manager, employee, accountant, customer_support] }
+                          status: { type: string, enum: [active, inactive, suspended] }
+                          joined_at: { type: string, format: date-time }
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Outside the caller reach
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Member or organization not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Would leave no active owner (LAST_OWNER)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed
           content:
             application/json:
               schema:
@@ -1229,6 +1550,44 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+    delete:
+      tags: [Tasks]
+      summary: Permanently delete a task
+      description: >
+        Owner/Manager only (TASK_CREATE_ASSIGN). Removes the task with its
+        comments and history, and its notifications. The activity log
+        keeps a task_deleted entry. Different from the cancelled status,
+        which keeps the task.
+      operationId: deleteOrganizationTask
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Task deleted (data is null)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Not Owner/Manager, or missing CSRF token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Task or organization not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /organizations/{organization_id}/tasks/{task_id}/assign:
     parameters:
       - name: organization_id
@@ -1502,6 +1861,102 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "422":
           description: Validation failed (unknown query param or out-of-range page/per_page)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/tasks/{task_id}/comments/{comment_id}:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: task_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: comment_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Tasks]
+      summary: Edit your own comment
+      description: Author only. Sets edited_at. Blank bodies are 422.
+      operationId: patchTaskComment
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: Updated comment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Not the author, or missing CSRF token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Comment, parent or organization not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      tags: [Tasks]
+      summary: Delete a comment
+      description: The author, or an Owner/Manager as moderator.
+      operationId: deleteTaskComment
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Comment deleted (data is null)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Neither the author nor an Owner/Manager, or missing CSRF token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Comment, parent or organization not found
           content:
             application/json:
               schema:
@@ -2063,6 +2518,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+    delete:
+      tags: [CustomerRequests]
+      summary: Permanently delete a customer request
+      description: >
+        Owner/Manager only. Removes the request with its comments and
+        history, and its notifications. The activity log keeps a
+        request_deleted entry.
+      operationId: deleteCustomerRequest
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Request deleted (data is null)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Not Owner/Manager, or missing CSRF token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Request or organization not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /organizations/{organization_id}/customer-requests/{request_id}/assign:
     parameters:
       - name: organization_id
@@ -2325,6 +2817,102 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "422":
           description: Validation failed (unknown query param or out-of-range page/per_page)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /organizations/{organization_id}/customer-requests/{request_id}/comments/{comment_id}:
+    parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: request_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: comment_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [CustomerRequests]
+      summary: Edit your own comment
+      description: Author only. Sets edited_at. Blank bodies are 422.
+      operationId: patchRequestComment
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: Updated comment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Not the author, or missing CSRF token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Comment, parent or organization not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      tags: [CustomerRequests]
+      summary: Delete a comment
+      description: The author, or an Owner/Manager as moderator.
+      operationId: deleteRequestComment
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Comment deleted (data is null)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Neither the author nor an Owner/Manager, or missing CSRF token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Comment, parent or organization not found
           content:
             application/json:
               schema:

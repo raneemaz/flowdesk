@@ -99,7 +99,7 @@ describe("EmployeeDashboard", () => {
     expect(deadlineLinks.map((link) => link.textContent)).toEqual(["Due soon", "Due later"]);
 
     await waitFor(() => expect(screen.getByText("2")).toBeInTheDocument()); // overdue_tasks from analytics
-    expect(await screen.findByText("task completed")).toBeInTheDocument();
+    expect(await screen.findByText("You completed a task")).toBeInTheDocument();
     expect(await screen.findByText("You were assigned a task")).toBeInTheDocument();
   });
 });

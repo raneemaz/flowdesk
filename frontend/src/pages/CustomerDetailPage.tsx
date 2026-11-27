@@ -7,6 +7,7 @@ import { Link, useParams } from "react-router-dom";
 import { ApiError } from "@/api/client";
 import { archiveCustomer, getCustomer, updateCustomer } from "@/api/customers";
 import { listRequests } from "@/api/customerRequests";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -96,42 +97,51 @@ export function CustomerDetailPage() {
     }
   };
 
+  const [isConfirmingArchive, setIsConfirmingArchive] = useState(false);
   const onArchive = async () => {
     if (!csrfToken || !customerId || !customer) return;
-    if (!window.confirm(`Archive ${customer.name}? Existing requests/invoices referencing them are kept.`)) return;
     try {
       await archiveCustomer(organizationId, customerId, csrfToken);
-      await queryClient.invalidateQueries({ queryKey: customerQueryKey });
     } catch {
-      setFormError("Could not archive this customer. Please try again.");
+      throw new Error("Could not archive this customer. Please try again.");
     }
+    await queryClient.invalidateQueries({ queryKey: customerQueryKey });
   };
 
   if (isPending) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background text-foreground">
+      <div className="flex items-center justify-center px-6 py-24">
         <p className="text-sm text-foreground/70">Loading customer…</p>
-      </main>
+      </div>
     );
   }
 
   if (isError || !customer) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background text-foreground">
+      <div className="flex flex-col items-center justify-center gap-3 px-6 py-24">
         <p role="alert" className="text-sm text-destructive">
           {error instanceof ApiError ? error.message : "Customer not found."}
         </p>
         <Link to="/customers" className="text-sm font-medium text-primary hover:underline">
           Back to directory
         </Link>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground">
-      <div className="mx-auto flex max-w-2xl flex-col gap-6">
-        <div className="flex items-center justify-between">
+    <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="flex max-w-3xl flex-col gap-6">
+        <ConfirmDialog
+          open={isConfirmingArchive}
+          onOpenChange={setIsConfirmingArchive}
+          title={`Archive ${customer.name}?`}
+          description="They'll be hidden from active customer lists and can't get new requests or invoices. Existing requests and invoices that reference them are kept."
+          confirmLabel="Archive customer"
+          destructive
+          onConfirm={onArchive}
+        />
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <h1 className="text-2xl font-semibold">
             {customer.name} {customer.status === "archived" && <span className="text-sm font-normal text-foreground/50">(archived)</span>}
           </h1>
@@ -141,7 +151,7 @@ export function CustomerDetailPage() {
         </div>
 
         {!isEditing && (
-          <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-6">
+          <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:p-6">
             <Field label="Email" value={customer.email ?? "—"} />
             <Field label="Phone" value={customer.phone ?? "—"} />
             <Field label="Company" value={customer.company ?? "—"} />
@@ -157,7 +167,7 @@ export function CustomerDetailPage() {
             <div className="mt-2 flex gap-3">
               <Button onClick={() => setIsEditing(true)}>Edit customer</Button>
               {customer.status === "active" && (
-                <Button type="button" variant="destructive" onClick={() => void onArchive()}>
+                <Button type="button" variant="destructive" onClick={() => setIsConfirmingArchive(true)}>
                   Archive
                 </Button>
               )}
@@ -167,7 +177,7 @@ export function CustomerDetailPage() {
 
         {isEditing && (
           <form
-            className="flex flex-col gap-4 rounded-md border border-border bg-card p-6"
+            className="flex flex-col gap-4 rounded-md border border-border bg-card p-4 sm:p-6"
             onSubmit={handleSubmit(onSubmit)}
             noValidate
           >
@@ -222,7 +232,7 @@ export function CustomerDetailPage() {
         )}
 
         {canSeeRequests && (
-          <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-6">
+          <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:p-6">
             <h2 className="text-lg font-medium">Requests</h2>
             {(requestsData?.requests ?? []).length === 0 && <p className="text-sm text-foreground/70">No requests yet.</p>}
             <ul className="flex flex-col gap-2">
@@ -238,14 +248,14 @@ export function CustomerDetailPage() {
           </div>
         )}
       </div>
-    </main>
+    </div>
   );
 }
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs font-medium uppercase tracking-wide text-foreground/50">{label}</span>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <span className="text-sm">{value}</span>
     </div>
   );

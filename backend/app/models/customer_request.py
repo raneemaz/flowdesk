@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 
 from sqlalchemy import Date, DateTime, Enum, ForeignKey, ForeignKeyConstraint, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -9,6 +9,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from app.extensions import db
 from app.models.base import TimestampMixin, UUIDPrimaryKeyMixin
 
+
+
+# Clock difference between created_at and updated_at that still counts as
+# "never edited" (both are set in the same insert).
+_EDIT_GRACE = timedelta(seconds=1)
 
 class RequestStatus(str, enum.Enum):
     """FR-019's workflow: New -> Assigned -> In Progress -> Waiting for
@@ -256,6 +261,9 @@ class RequestComment(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
             "author_membership_id": str(self.author_membership_id) if self.author_membership_id else None,
             "body": self.body,
             "created_at": self.created_at.isoformat(),
+            # Set only once the body has been edited (comments change no
+            # other way); a fresh comment's updated_at equals created_at.
+            "edited_at": self.updated_at.isoformat() if self.updated_at - self.created_at > _EDIT_GRACE else None,
         }
 
     def __repr__(self) -> str:

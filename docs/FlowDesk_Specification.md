@@ -404,17 +404,23 @@ Base path `/api/v1`. JSON everywhere, consistent response envelope, pagination o
 ### 12.1 Design direction
 Clean, modern, professional — closer to a polished commercial SaaS product than a generic admin template. Light theme primary, dark theme optional.
 
+The visual language is a business ledger: a deep-green desk blotter (the sidebar) beside sheets of paper (the page and its cards), ink-green for actions, and tabular numerals so figures line up in columns. The active sidebar item is drawn as a paper filing tab that opens into the page. Typeface: Schibsted Grotesk (400–700). Tokens live in `frontend/src/index.css` (OKLCH, built in tweakcn); the hex values below are their equivalents.
+
 | Element | Color |
 |---|---|
-| Primary | `#4F46E5` |
-| Secondary | `#6366F1` |
-| Background | `#F8FAFC` |
-| Sidebar | `#111827` |
-| Cards | `#FFFFFF` |
-| Success | `#16A34A` |
-| Warning | `#F59E0B` |
-| Danger | `#DC2626` |
-| Main text | `#1E293B` |
+| Primary (ink green) | `#1E6A4E` |
+| Secondary | `#E2EAE4` |
+| Background (paper) | `#F1F3EE` |
+| Sidebar (blotter) | `#163A2D` |
+| Sidebar hover | `#21503F` |
+| Cards | `#FBFCF9` |
+| Muted text | `#5A6570` |
+| Borders / inputs | `#D7DDD4` / `#CBD3C8` |
+| Success | `#2E7A52` |
+| Warning | `#D6A43A` |
+| Danger | `#B3362C` |
+| Chart in-progress (ink blue) | `#3F6E8C` |
+| Main text | `#1C2631` |
 
 ### 12.2 Layout
 - **Sidebar:** Overview, Employees, Departments, Tasks, Customers, Requests, Invoices, Analytics, AI Reports, Activity, Settings.

@@ -483,6 +483,26 @@ def update_task(organization_id: uuid.UUID, task_id: uuid.UUID, fields: dict, *,
     return task
 
 
+def delete_task(organization_id: uuid.UUID, task_id: uuid.UUID, *, actor_membership_id: uuid.UUID) -> None:
+    """Permanently removes a task (user-requested hard delete, distinct
+    from the workflow's own "cancelled" status, which keeps the record).
+
+    Its comments and history go with it (ON DELETE CASCADE). Its
+    notifications are removed too - they would otherwise link to a
+    record that no longer exists. The activity log is the audit trail
+    and is deliberately kept: it gains a `task_deleted` entry carrying
+    the title, since the task row itself is gone after this."""
+    from app.models import Notification
+
+    task = get_task_or_404(organization_id, task_id)
+    log_activity(organization_id, actor_membership_id, "task_deleted", "task", task.id, metadata={"title": task.title})
+    db.session.query(Notification).filter_by(
+        organization_id=organization_id, entity_type="task", entity_id=task.id
+    ).delete(synchronize_session=False)
+    db.session.delete(task)
+    db.session.commit()
+
+
 def _set_comment_body(comment: TaskComment, body: str) -> None:
     # TaskComment.body's own @validates (strips and rejects a blank
     # result, e.g. whitespace-only, which passes pydantic's
@@ -530,6 +550,50 @@ def create_task_comment(
         )
     db.session.commit()
     return comment
+
+
+def _get_task_comment_or_404(organization_id: uuid.UUID, task_id: uuid.UUID, comment_id: uuid.UUID) -> TaskComment:
+    comment = (
+        db.session.query(TaskComment)
+        .filter_by(id=comment_id, task_id=task_id, organization_id=organization_id)
+        .first()
+    )
+    if comment is None:
+        raise APIError("Not found.", status_code=404, code="NOT_FOUND")
+    return comment
+
+
+def edit_task_comment(
+    organization_id: uuid.UUID,
+    task_id: uuid.UUID,
+    comment_id: uuid.UUID,
+    *,
+    scope: PermissionScope,
+    actor,
+    body: str,
+) -> TaskComment:
+    """Author only (app.comment_rules). Same task reach check as posting."""
+    from app.comment_rules import require_can_edit
+
+    task = get_task(organization_id, task_id, scope=scope, caller_membership_id=actor.id)
+    comment = _get_task_comment_or_404(organization_id, task.id, comment_id)
+    require_can_edit(comment.author_membership_id, actor)
+    _set_comment_body(comment, body)
+    db.session.commit()
+    return comment
+
+
+def delete_task_comment(
+    organization_id: uuid.UUID, task_id: uuid.UUID, comment_id: uuid.UUID, *, scope: PermissionScope, actor
+) -> None:
+    """Author, or Owner/Manager as moderators (app.comment_rules)."""
+    from app.comment_rules import require_can_delete
+
+    task = get_task(organization_id, task_id, scope=scope, caller_membership_id=actor.id)
+    comment = _get_task_comment_or_404(organization_id, task.id, comment_id)
+    require_can_delete(comment.author_membership_id, actor)
+    db.session.delete(comment)
+    db.session.commit()
 
 
 def list_task_comments(

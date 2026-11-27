@@ -10,13 +10,20 @@ import type { UserPublic } from "@/types/user";
 
 const USER: UserPublic = { id: "u1", name: "Ada", email: "ada@example.com", status: "active", created_at: "now" };
 
-function renderWithRouter() {
+function renderWithRouter(initialPath = "/tasks") {
   const router = createMemoryRouter(
     [
       { path: "/login", element: <div>Login page</div> },
-      { element: <ProtectedRoute />, children: [{ path: "/", element: <div>Protected home</div> }] },
+      { path: "/welcome", element: <div>Landing page</div> },
+      {
+        element: <ProtectedRoute />,
+        children: [
+          { path: "/", element: <div>Protected home</div> },
+          { path: "/tasks", element: <div>Protected tasks</div> },
+        ],
+      },
     ],
-    { initialEntries: ["/"] },
+    { initialEntries: [initialPath] },
   );
 
   render(
@@ -31,18 +38,26 @@ describe("ProtectedRoute", () => {
     vi.restoreAllMocks();
   });
 
-  it("redirects to /login when there is no session", async () => {
+  it("redirects a deep link to /login when there is no session", async () => {
     vi.spyOn(authApi, "getCurrentUser").mockRejectedValue(new ApiError(401, "UNAUTHENTICATED", "nope", {}));
 
-    renderWithRouter();
+    renderWithRouter("/tasks");
 
     await waitFor(() => expect(screen.getByText("Login page")).toBeInTheDocument());
+  });
+
+  it("sends a signed-out visit to the front door to the landing page", async () => {
+    vi.spyOn(authApi, "getCurrentUser").mockRejectedValue(new ApiError(401, "UNAUTHENTICATED", "nope", {}));
+
+    renderWithRouter("/");
+
+    await waitFor(() => expect(screen.getByText("Landing page")).toBeInTheDocument());
   });
 
   it("renders the protected content once a session is confirmed", async () => {
     vi.spyOn(authApi, "getCurrentUser").mockResolvedValue(USER);
 
-    renderWithRouter();
+    renderWithRouter("/");
 
     await waitFor(() => expect(screen.getByText("Protected home")).toBeInTheDocument());
   });

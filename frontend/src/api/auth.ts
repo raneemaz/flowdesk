@@ -5,11 +5,14 @@ export interface RegisterInput {
   name: string;
   email: string;
   password: string;
+  /** Cloudflare Turnstile token, when the bot check is enabled. */
+  turnstile_token?: string;
 }
 
 export interface LoginInput {
   email: string;
   password: string;
+  turnstile_token?: string;
 }
 
 export interface LoginResult {

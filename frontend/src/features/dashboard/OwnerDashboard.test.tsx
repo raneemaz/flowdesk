@@ -4,7 +4,32 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
 import * as analyticsApi from "@/api/analytics";
+import * as notificationsApi from "@/api/notifications";
+import * as tasksApi from "@/api/tasks";
 import { OwnerDashboard } from "@/features/dashboard/OwnerDashboard";
+
+function mockSummaryWidgetCalls() {
+  vi.spyOn(tasksApi, "listTasks").mockResolvedValue({
+    tasks: [],
+    meta: { page: 1, per_page: 100, total: 0, total_pages: 1 },
+  });
+  vi.spyOn(analyticsApi, "getFinancialAnalytics").mockResolvedValue({
+    total_invoiced: "0",
+    total_collected: "0",
+    outstanding_balance: "0",
+    overdue_invoice_count: 0,
+    period_start: "2026-01-01",
+    period_end: "2026-01-31",
+    monthly_revenue_collected: "0",
+    recent_payments: [],
+    revenue_by_day: [],
+    invoice_distribution: {},
+  });
+  vi.spyOn(notificationsApi, "listNotifications").mockResolvedValue({
+    notifications: [],
+    meta: { page: 1, per_page: 5, total: 0, total_pages: 1 },
+  });
+}
 
 function renderDashboard() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -21,6 +46,7 @@ describe("OwnerDashboard", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("shows business stats, financial overview, and employee performance from real analytics calls", async () => {
+    mockSummaryWidgetCalls();
     vi.spyOn(analyticsApi, "getOverviewAnalytics").mockResolvedValue({
       period_start: "2026-01-01",
       period_end: "2026-01-31",
@@ -56,11 +82,13 @@ describe("OwnerDashboard", () => {
   });
 
   it("shows an error message when the overview call fails", async () => {
+    mockSummaryWidgetCalls();
     vi.spyOn(analyticsApi, "getOverviewAnalytics").mockRejectedValue(new Error("boom"));
     vi.spyOn(analyticsApi, "getEmployeeAnalytics").mockResolvedValue([]);
 
     renderDashboard();
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong loading this section.");
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts.some((alert) => alert.textContent === "Something went wrong loading this section.")).toBe(true);
   });
 });

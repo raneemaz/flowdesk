@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -63,7 +63,7 @@ const SAMPLE_CUSTOMER: CustomerPublic = {
 };
 
 function membership(role: MembershipPublic["role"]): MembershipPublic {
-  return { organization: ORG, role, status: "active", joined_at: "now" };
+  return { membership_id: "m1", organization: ORG, role, status: "active", joined_at: "now" };
 }
 
 function renderPage() {
@@ -227,5 +227,61 @@ describe("RequestDetailPage", () => {
     renderPage();
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Not found.");
+  });
+  it("deletes the request after confirmation (owner/manager only)", async () => {
+    mockAuthenticated("owner");
+    vi.spyOn(customerRequestsApi, "getRequest").mockResolvedValue(SAMPLE_REQUEST);
+    mockCommonQueries();
+    const deleteSpy = vi.spyOn(customerRequestsApi, "deleteRequest").mockResolvedValue(null);
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Delete request" }));
+    expect(deleteSpy).not.toHaveBeenCalled();
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete request" }));
+
+    await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith("org-1", SAMPLE_REQUEST.id, "csrf-abc"));
+    expect(await screen.findByText("Queue page")).toBeInTheDocument();
+  });
+
+  it("does not offer Delete request to customer support", async () => {
+    mockAuthenticated("customer_support");
+    vi.spyOn(customerRequestsApi, "getRequest").mockResolvedValue(SAMPLE_REQUEST);
+    mockCommonQueries();
+
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: SAMPLE_REQUEST.title })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete request" })).not.toBeInTheDocument();
+  });
+
+  it("lets the author edit and delete their own request comment", async () => {
+    mockAuthenticated("customer_support");
+    vi.spyOn(customerRequestsApi, "getRequest").mockResolvedValue(SAMPLE_REQUEST);
+    mockCommonQueries();
+    vi.spyOn(customerRequestsApi, "listRequestComments").mockResolvedValue({
+      comments: [{ id: "rc1", request_id: SAMPLE_REQUEST.id, author_membership_id: "m1", body: "Called them", created_at: "now" }],
+      meta: { page: 1, per_page: 100, total: 1, total_pages: 1 },
+    });
+    const updateSpy = vi.spyOn(customerRequestsApi, "updateRequestComment").mockResolvedValue({
+      id: "rc1", request_id: SAMPLE_REQUEST.id, author_membership_id: "m1", body: "Called them twice", created_at: "now",
+    });
+    const deleteSpy = vi.spyOn(customerRequestsApi, "deleteRequestComment").mockResolvedValue(null);
+    const user = userEvent.setup();
+
+    renderPage();
+    const edit = await screen.findByRole("button", { name: /^Edit comment by/ });
+    await user.click(edit);
+    const box = screen.getByLabelText("Edit comment");
+    await user.clear(box);
+    await user.type(box, "Called them twice");
+    await user.click(screen.getByRole("button", { name: "Save comment" }));
+    await waitFor(() =>
+      expect(updateSpy).toHaveBeenCalledWith("org-1", SAMPLE_REQUEST.id, "rc1", "Called them twice", "csrf-abc"),
+    );
+
+    await user.click(await screen.findByRole("button", { name: /^Delete comment by/ }));
+    await user.click(await screen.findByRole("button", { name: "Delete comment" }));
+    await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith("org-1", SAMPLE_REQUEST.id, "rc1", "csrf-abc"));
   });
 });

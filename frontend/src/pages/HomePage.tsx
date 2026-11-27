@@ -26,11 +26,11 @@ export function HomePage() {
   const organizationId = activeMembership?.organization.id ?? "";
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8 text-foreground">
+    <div className="flex max-w-7xl flex-col gap-6 px-6 py-8 lg:px-10">
       {isLoading && <p className="text-sm text-foreground/70">Loading your organizations…</p>}
 
       {!isLoading && !activeMembership && (
-        <div className="flex flex-col items-center gap-3 rounded-md border border-border bg-card p-6 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-md border border-border bg-card p-4 sm:p-6 text-center">
           {user && <p className="text-sm text-foreground/70">Logged in as {user.name} ({user.email})</p>}
           <p className="text-sm text-foreground/70">You don&apos;t belong to an organization yet.</p>
           <Button asChild>

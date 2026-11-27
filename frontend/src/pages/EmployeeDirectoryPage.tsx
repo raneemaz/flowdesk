@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
+import { cancelInvitation, listInvitations } from "@/api/invitations";
 import { listDepartments } from "@/api/departments";
 import { ApiError } from "@/api/client";
 import { listEmployees } from "@/api/employees";
@@ -9,9 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { EMPLOYEE_STATUS_OPTIONS, ROLE_LABELS, ROLE_OPTIONS } from "@/features/employees/constants";
-import { canManageDepartments } from "@/features/employees/permissions";
+import { canInviteEmployees, canManageDepartments } from "@/features/employees/permissions";
+import { InviteEmployeeDialog } from "@/features/invitations/InviteEmployeeDialog";
 import type { EmployeeProfileStatus } from "@/types/employee";
 import type { MembershipRole } from "@/types/organization";
 
@@ -29,8 +32,23 @@ const EMPTY_FILTERS: Filters = { search: "", role: "", status: "", departmentId:
 // Deliberately minimal (no page-level nav of its own). Reached via
 // the dashboard shell's "Employees" sidebar link (FD-053).
 export function EmployeeDirectoryPage() {
+  const { csrfToken } = useAuth();
   const { activeMembership } = useOrganization();
   const organizationId = activeMembership?.organization.id ?? "";
+  const queryClient = useQueryClient();
+
+  const canInvite = activeMembership ? canInviteEmployees(activeMembership.role) : false;
+  const { data: pendingInvitations } = useQuery({
+    queryKey: ["invitations", organizationId],
+    queryFn: () => listInvitations(organizationId),
+    enabled: Boolean(organizationId) && canInvite,
+    select: (invitations) => invitations.filter((invitation) => invitation.status === "pending"),
+  });
+
+  const cancelInvitationMutation = useMutation({
+    mutationFn: (invitationId: string) => cancelInvitation(organizationId, invitationId, csrfToken ?? ""),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invitations", organizationId] }),
+  });
 
   const [draftFilters, setDraftFilters] = useState<Filters>(EMPTY_FILTERS);
   const [appliedFilters, setAppliedFilters] = useState<Filters>(EMPTY_FILTERS);
@@ -84,16 +102,41 @@ export function EmployeeDirectoryPage() {
   };
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground">
-      <div className="mx-auto flex max-w-4xl flex-col gap-6">
-        <div className="flex items-center justify-between">
+    <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+      <div className="flex max-w-7xl flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <h1 className="text-2xl font-semibold">Employee directory</h1>
-          <Link to="/" className="text-sm font-medium text-primary hover:underline">
-            Back to home
-          </Link>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {canInvite && <InviteEmployeeDialog organizationId={organizationId} viewerRole={activeMembership!.role} />}
+          </div>
         </div>
 
-        <form className="flex flex-wrap items-end gap-3 rounded-md border border-border bg-card p-4" onSubmit={applyFilters}>
+        {canInvite && pendingInvitations && pendingInvitations.length > 0 && (
+          <div className="flex flex-col gap-2 rounded-md border border-border bg-card p-4">
+            <h2 className="text-sm font-semibold">Pending invitations</h2>
+            <ul className="flex flex-col gap-2">
+              {pendingInvitations.map((invitation) => (
+                <li key={invitation.id} className="flex items-center justify-between text-sm">
+                  <span className="flex items-baseline gap-3">
+                    {invitation.email}
+                    <span className="text-muted-foreground">{ROLE_LABELS[invitation.role]}</span>
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={cancelInvitationMutation.isPending}
+                    onClick={() => cancelInvitationMutation.mutate(invitation.id)}
+                  >
+                    Cancel
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <form className="grid grid-cols-1 gap-3 rounded-md border border-border bg-card p-4 sm:flex sm:flex-wrap sm:items-end" onSubmit={applyFilters}>
           <div className="flex min-w-[180px] flex-1 flex-col gap-1.5">
             <Label htmlFor="search">Search by name</Label>
             <Input
@@ -174,8 +217,8 @@ export function EmployeeDirectoryPage() {
         )}
 
         {!isPending && !isError && employees.length > 0 && (
-          <div className="overflow-hidden rounded-md border border-border">
-            <table className="w-full text-left text-sm">
+          <div className="relative overflow-x-auto rounded-md border border-border">
+            <table className="w-full text-left text-sm [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
               <thead className="bg-card">
                 <tr>
                   <th className="px-4 py-2 font-medium">Name</th>
@@ -224,6 +267,6 @@ export function EmployeeDirectoryPage() {
           </div>
         )}
       </div>
-    </main>
+    </div>
   );
 }

@@ -22,14 +22,20 @@ export function MyTasksPage() {
   const organizationId = activeMembership?.organization.id ?? "";
   const canManage = activeMembership ? canManageTasks(activeMembership.role) : false;
 
-  const { data: ownMembershipId, isPending } = useQuery({
+  // The membership list now carries the viewer's own membership id, so
+  // no lookup is needed. The directory search by email stays only as a
+  // fallback for a backend that predates that field.
+  const knownMembershipId = activeMembership?.membership_id;
+  const { data: lookedUpMembershipId, isPending: isLookupPending } = useQuery({
     queryKey: ["own-membership-id", organizationId, user?.email],
     queryFn: async () => {
       const { employees } = await listEmployees(organizationId, { perPage: 100 });
       return employees.find((employee) => employee.email === user?.email)?.membership_id ?? null;
     },
-    enabled: canManage && Boolean(organizationId) && Boolean(user),
+    enabled: canManage && !knownMembershipId && Boolean(organizationId) && Boolean(user),
   });
+  const ownMembershipId = knownMembershipId ?? lookedUpMembershipId;
+  const isPending = !knownMembershipId && isLookupPending;
 
   return (
     <TaskListView

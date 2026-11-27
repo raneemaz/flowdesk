@@ -37,10 +37,10 @@ describe("new organization journey", () => {
     const user = userEvent.setup();
     renderApp();
 
-    // Unauthenticated at "/" -> ProtectedRoute's own redirect to
-    // /login, exactly as a real first visit would see.
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Log in to FlowDesk" })).toBeInTheDocument());
-    await user.click(screen.getByRole("link", { name: "Register" }));
+    // Unauthenticated at "/" -> the public landing page, exactly as a
+    // real first visit would see; its header leads to sign-up.
+    expect(await screen.findByRole("heading", { name: "Run your whole business in one flow." })).toBeInTheDocument();
+    await user.click(screen.getAllByRole("link", { name: "Create your workspace" })[0]);
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Create your FlowDesk account" })).toBeInTheDocument());
     await user.type(screen.getByLabelText("Name"), "Ada Owner");
